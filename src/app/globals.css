@@ -2,20 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Optional: Custom global styles */
+h1 {
+  @apply text-3xl md:text-4xl font-bold text-gray-800;
 }
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+p {
+  @apply text-base md:text-lg text-gray-600 leading-relaxed;
 }
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+button {
+  @apply bg-primary text-white px-4 py-2 rounded-full transition-transform hover:scale-105;
 }
