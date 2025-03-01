@@ -20,20 +20,20 @@ const nextConfig = {
         },
       ],
     },
-    // Increase limit if needed for large content
-    largePageDataBytes: 128 * 1000, // 128KB
-    
-    // Move serverComponentsExternalPackages out of experimental
-    serverExternalPackages: [], // Updated property name
-    
-    // Temporarily bypass TypeScript and ESLint errors to get a successful build
-    // Comment these out once you've fixed all the errors
+    // Temporarily bypass TypeScript and ESLint errors
     typescript: {
       ignoreBuildErrors: true,
     },
     eslint: {
       ignoreDuringBuilds: true,
     },
+    // Move the largePageDataBytes setting to experimental
+    experimental: {
+      // serverComponentsExternalPackages has been moved to serverExternalPackages
+      largePageDataBytes: 128 * 1000, // 128KB
+    },
+    // New location for serverExternalPackages
+    serverExternalPackages: [],
     
     // Configure allowed HTTP methods
     async headers() {
@@ -62,7 +62,6 @@ const nextConfig = {
     webpack(config) {
       // SVG optimization options
       // Other optimizations
-  
       return config;
     },
   };
