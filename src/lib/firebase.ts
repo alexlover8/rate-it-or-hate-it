@@ -1,3 +1,5 @@
+'use client';
+
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth, connectAuthEmulator } from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
@@ -44,7 +46,7 @@ if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_USE_FIREBA
  * Performance monitoring setup can be added here
  * Using lazy initialization for better performance
  */
-let analytics = null;
+let analytics: import('firebase/analytics').Analytics | null = null;
 export const getAnalytics = async () => {
   if (typeof window !== 'undefined' && analytics === null) {
     const { getAnalytics } = await import('firebase/analytics');
