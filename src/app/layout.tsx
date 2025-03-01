@@ -1,15 +1,13 @@
-import './globals.css'; // Link to your global styles
+import './globals.css';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Poppins } from 'next/font/google';
 import { Analytics } from '@/components/Analytics';
 import Script from 'next/script';
+import { AuthProvider } from '@/lib/auth';
 
 /**
  * Configure Poppins font with Next.js optimized font loading
- * - Includes a wider range of weights for more design flexibility
- * - Uses 'swap' display to ensure text is visible while font loads
- * - Creates a CSS variable to use in Tailwind config
  */
 const poppins = Poppins({
   subsets: ['latin'],
@@ -19,12 +17,19 @@ const poppins = Poppins({
 });
 
 /**
+ * Viewport configuration
+ */
+export const viewport = {
+  themeColor: '#3B82F6',
+  width: 'device-width',
+  initialScale: 1
+};
+
+/**
  * Enhanced metadata for SEO and social sharing
- * - Includes comprehensive OpenGraph and Twitter card configurations
- * - Provides favicon and manifest links
- * - Sets up proper title templating for consistent page titles
  */
 export const metadata = {
+  metadataBase: new URL('https://rateithateit.com'), // Change to your actual domain
   title: {
     default: 'Rate It or Hate It | Your Voice Matters',
     template: '%s | Rate It or Hate It'
@@ -61,7 +66,6 @@ export const metadata = {
     index: true,
     follow: true
   },
-  themeColor: '#3B82F6',
   manifest: '/site.webmanifest',
   icons: {
     icon: '/favicon.ico',
@@ -72,10 +76,6 @@ export const metadata = {
 
 /**
  * Root Layout Component
- * - Provides the base HTML structure for all pages
- * - Applies global fonts and styles
- * - Includes header and footer components
- * - Sets up accessibility features
  */
 export default function RootLayout({
   children,
@@ -83,49 +83,61 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={poppins.variable}>
+    <html lang="en" className={`${poppins.variable} scroll-smooth`}>
       <head>
-        {/* Viewport meta tag for responsive design */}
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        
-        {/* Theme color for browser UI */}
-        <meta name="theme-color" content="#3B82F6" />
-        
-        {/* Preconnect to external domains for performance */}
+        {/* Preconnect to important domains for performance */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        
-        {/* Favicons */}
-        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
-        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
-        <link rel="manifest" href="/site.webmanifest" />
+        <link rel="preconnect" href="https://firebaseapp.com" crossOrigin="anonymous" />
       </head>
-      
-      <body className="font-poppins bg-gray-50 text-gray-800 flex flex-col min-h-screen antialiased">
-        {/* Skip to content link for accessibility */}
-        <a 
-          href="#main-content" 
-          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:p-4 focus:bg-blue-500 focus:text-white focus:z-50"
-        >
-          Skip to content
-        </a>
+      <body className="font-poppins bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 flex flex-col min-h-screen antialiased">
+        <AuthProvider>
+          {/* Global loading indicator for auth state */}
+          <div id="auth-loading-indicator" className="fixed top-0 left-0 w-full h-1 bg-blue-500 opacity-0 transition-opacity duration-300 z-50"></div>
+          
+          {/* Skip to content link for accessibility */}
+          <a 
+            href="#main-content" 
+            className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:p-4 focus:bg-blue-500 focus:text-white focus:z-50"
+          >
+            Skip to content
+          </a>
+          
+          {/* Site header with navigation */}
+          <Header />
+          
+          {/* Main content area - flex-grow ensures it fills available space */}
+          <main id="main-content" className="flex-grow">
+            {children}
+          </main>
+          
+          {/* Site footer with links and information */}
+          <Footer />
+          
+          {/* Analytics component for tracking (non-rendering) */}
+          <Analytics />
+        </AuthProvider>
         
-        {/* Site header with navigation */}
-        <Header />
+        {/* JSON-LD Structured Data for SEO */}
+        <Script 
+          id="structured-data"
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              '@context': 'https://schema.org',
+              '@type': 'WebSite',
+              name: 'Rate It or Hate It',
+              url: 'https://rateithateit.com',
+              potentialAction: {
+                '@type': 'SearchAction',
+                target: 'https://rateithateit.com/search?q={search_term_string}',
+                'query-input': 'required name=search_term_string'
+              }
+            })
+          }}
+        />
         
-        {/* Main content area - flex-grow ensures it fills available space */}
-        <main id="main-content" className="flex-grow">
-          {children}
-        </main>
-        
-        {/* Site footer with links and information */}
-        <Footer />
-        
-        {/* Analytics component for tracking (non-rendering) */}
-        <Analytics />
-        
-        {/* Optional: Script for any external JavaScript */}
+        {/* Theme switcher script */}
         <Script 
           id="theme-switcher"
           strategy="afterInteractive"
@@ -143,11 +155,12 @@ export default function RootLayout({
           }}
         />
         
-        {/* Future Cloudflare Analytics integration */}
+        {/* Cloudflare Analytics integration */}
         {process.env.NODE_ENV === 'production' && (
           <Script 
             src="https://static.cloudflareinsights.com/beacon.min.js" 
-            data-cf-beacon='{"token": "your-token-here"}'
+            data-cf-beacon='{"token": "your-token-here", "spa": true}'
+            strategy="afterInteractive"
             defer
           />
         )}

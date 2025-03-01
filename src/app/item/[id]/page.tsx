@@ -3,42 +3,10 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { Share2, MessageCircle, Bookmark, ArrowLeft } from 'lucide-react';
 import VotingButtons from '@/components/VotingButtons';
-
-// Enhanced mock data with more fields - replace with your API/database call
-async function getItem(id: string) {
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id,
-    name: `Item ${id}`,
-    description: 'This is a detailed description of the item. It includes information about features, benefits, and what makes it unique compared to similar products in the market.',
-    loveCount: 100,
-    hateCount: 30,
-    category: 'electronics',
-    categoryId: 1,
-    dateAdded: '2023-10-15',
-    imageUrl: `/images/item-${id}.jpg`,
-    comments: [
-      { id: 1, user: 'User123', text: 'Great product, would recommend!', date: '2023-10-20' },
-      { id: 2, user: 'Reviewer', text: 'Not what I expected.', date: '2023-10-18' },
-    ],
-    relatedItems: [
-      { id: '101', name: 'Related Item 1', category: 'electronics', imageUrl: '/images/item-101.jpg' },
-      { id: '102', name: 'Related Item 2', category: 'electronics', imageUrl: '/images/item-102.jpg' },
-    ]
-  };
-}
-
-// Simulated fetch for related items in the same category
-async function getRelatedItems(categoryId: number, currentItemId: string) {
-  // This would be a real database query in production
-  return [
-    { id: '201', name: 'Similar Product', imageUrl: '/images/item-201.jpg', lovePercentage: 75 },
-    { id: '202', name: 'Another Option', imageUrl: '/images/item-202.jpg', lovePercentage: 82 },
-    { id: '203', name: 'Alternative Choice', imageUrl: '/images/item-203.jpg', lovePercentage: 68 },
-  ].filter(item => item.id !== currentItemId);
-}
+import CommentSection from '@/components/CommentSection';
+import SentimentAnalysis from '@/components/SentimentAnalysis';
+import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 // Loading placeholder
 function ItemSkeleton() {
@@ -56,10 +24,122 @@ function ItemSkeleton() {
   );
 }
 
+// Get item details from Firestore
+async function getItem(id: string) {
+  try {
+    const itemRef = doc(db, 'items', id);
+    const itemDoc = await getDoc(itemRef);
+    
+    if (!itemDoc.exists()) {
+      // Return default data if item doesn't exist yet
+      return {
+        id,
+        name: `Item ${id}`,
+        description: 'No description available.',
+        loveCount: 0,
+        hateCount: 0,
+        category: 'uncategorized',
+        categoryId: 0,
+        dateAdded: new Date().toISOString(),
+        imageUrl: null,
+        commentCount: 0,
+        comments: [],
+        creatorId: null,
+        creatorName: 'Unknown',
+      };
+    }
+    
+    // Get item data
+    const data = itemDoc.data();
+    
+    // Get comments
+    const commentsQuery = query(
+      collection(db, 'comments'),
+      where('itemId', '==', id),
+      orderBy('timestamp', 'desc'),
+      limit(20)
+    );
+    const commentsSnapshot = await getDocs(commentsQuery);
+    const comments = commentsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      text: doc.data().text,
+      userId: doc.data().userId,
+      userName: doc.data().userName,
+      timestamp: doc.data().timestamp?.toDate() || new Date(),
+    }));
+    
+    return {
+      id,
+      name: data.name || `Item ${id}`,
+      description: data.description || 'No description available.',
+      loveCount: data.rateCount || 0,
+      hateCount: data.hateCount || 0,
+      category: data.category || 'uncategorized',
+      categoryId: data.categoryId || 0,
+      dateAdded: data.created?.toDate()?.toISOString() || new Date().toISOString(),
+      imageUrl: data.imageUrl || null,
+      commentCount: data.commentCount || 0,
+      comments: comments,
+      creatorId: data.creatorId || null,
+      creatorName: data.creatorName || 'Unknown',
+    };
+  } catch (error) {
+    console.error('Error fetching item:', error);
+    return {
+      id,
+      name: `Error Loading Item`,
+      description: 'There was an error loading this item.',
+      loveCount: 0,
+      hateCount: 0,
+      category: 'uncategorized',
+      categoryId: 0,
+      dateAdded: new Date().toISOString(),
+      imageUrl: null,
+      commentCount: 0,
+      comments: [],
+      creatorId: null,
+      creatorName: 'Unknown',
+    };
+  }
+}
+
+// Simulated fetch for related items in the same category
+async function getRelatedItems(category: string, currentItemId: string) {
+  try {
+    const relatedQuery = query(
+      collection(db, 'items'),
+      where('category', '==', category),
+      where('id', '!=', currentItemId),
+      limit(3)
+    );
+    
+    const relatedSnapshot = await getDocs(relatedQuery);
+    const relatedItems = relatedSnapshot.docs.map(doc => {
+      const data = doc.data();
+      const totalVotes = (data.rateCount || 0) + (data.hateCount || 0);
+      const lovePercentage = totalVotes > 0 
+        ? Math.round(((data.rateCount || 0) / totalVotes) * 100) 
+        : 50;
+        
+      return {
+        id: doc.id,
+        name: data.name || 'Unknown Item',
+        imageUrl: data.imageUrl || null,
+        lovePercentage: lovePercentage
+      };
+    });
+    
+    return relatedItems;
+  } catch (error) {
+    console.error('Error fetching related items:', error);
+    return [];
+  }
+}
+
 export default async function ItemDetailPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const item = await getItem(id);
-  const relatedItems = await getRelatedItems(item.categoryId, id);
+  const relatedItems = await getRelatedItems(item.category, id);
 
   // Calculate percentages
   const totalVotes = item.loveCount + item.hateCount;
@@ -110,12 +190,16 @@ export default async function ItemDetailPage({ params }: { params: { id: string 
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h1 className="text-3xl font-bold">{item.name}</h1>
-                    <Link 
-                      href={`/category/${item.category}`}
-                      className="text-sm text-blue-500 hover:underline"
-                    >
-                      {item.category}
-                    </Link>
+                    <div className="flex items-center space-x-2">
+                      <Link 
+                        href={`/category/${item.category}`}
+                        className="text-sm text-blue-500 hover:underline"
+                      >
+                        {item.category}
+                      </Link>
+                      <span className="text-gray-400">•</span>
+                      <span className="text-sm text-gray-500">Added by {item.creatorName}</span>
+                    </div>
                   </div>
                   <div className="flex space-x-2">
                     <button className="p-2 text-gray-500 hover:text-blue-500 transition-colors">
@@ -132,10 +216,14 @@ export default async function ItemDetailPage({ params }: { params: { id: string 
                 {/* Voting section */}
                 <div className="mb-8">
                   <h2 className="text-xl font-semibold mb-4">What do you think?</h2>
-                  <VotingButtons itemId={item.id} />
+                  <VotingButtons 
+                    itemId={item.id} 
+                    initialRateCount={item.loveCount}
+                    initialHateCount={item.hateCount}
+                  />
                 </div>
                 
-                {/* Vote results */}
+                {/* Vote results - You can remove this if it's already in VotingButtons */}
                 <div className="bg-gray-50 rounded-lg p-4 mb-6">
                   <h3 className="text-lg font-semibold mb-4">Vote Results</h3>
                   <div className="flex flex-col md:flex-row gap-4">
@@ -179,31 +267,14 @@ export default async function ItemDetailPage({ params }: { params: { id: string 
               </div>
             </div>
             
-            {/* Comments section */}
-            <div className="mt-8 bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold flex items-center">
-                  <MessageCircle size={20} className="mr-2" />
-                  Comments ({item.comments.length})
-                </h2>
-                <button className="text-blue-500 hover:text-blue-700 text-sm">Add Comment</button>
-              </div>
-              
-              {item.comments.length > 0 ? (
-                <div className="space-y-4">
-                  {item.comments.map(comment => (
-                    <div key={comment.id} className="border-b pb-4">
-                      <div className="flex justify-between mb-1">
-                        <p className="font-medium">{comment.user}</p>
-                        <p className="text-sm text-gray-500">{comment.date}</p>
-                      </div>
-                      <p className="text-gray-700">{comment.text}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-center text-gray-500 py-4">No comments yet. Be the first to comment!</p>
-              )}
+            {/* Comment analysis section - NEW ADDITION */}
+            <div className="mt-8">
+              <SentimentAnalysis itemId={item.id} comments={item.comments || []} />
+            </div>
+            
+            {/* Comments section - NEW ADDITION */}
+            <div className="mt-8">
+              <CommentSection itemId={item.id} initialCommentCount={item.commentCount || 0} />
             </div>
           </div>
           
@@ -214,8 +285,8 @@ export default async function ItemDetailPage({ params }: { params: { id: string 
               <h3 className="text-lg font-semibold mb-4">Similar Items</h3>
               <div className="space-y-4">
                 {relatedItems.map(related => (
-                  <Link key={related.id} href={`/item/${related.id}`}>
-                    <div className="flex items-center p-2 hover:bg-gray-50 rounded-lg transition-colors">
+                  <div key={related.id} className="hover:bg-gray-50 rounded-lg transition-colors">
+                    <Link href={`/item/${related.id}`} className="flex items-center p-2">
                       <div className="relative w-16 h-16 bg-gray-200 rounded overflow-hidden">
                         {related.imageUrl ? (
                           <Image
@@ -243,8 +314,8 @@ export default async function ItemDetailPage({ params }: { params: { id: string 
                           <span className="text-xs text-gray-500">{related.lovePercentage}%</span>
                         </div>
                       </div>
-                    </div>
-                  </Link>
+                    </Link>
+                  </div>
                 ))}
               </div>
               <Link 

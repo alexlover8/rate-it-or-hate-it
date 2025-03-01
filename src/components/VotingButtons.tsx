@@ -1,247 +1,408 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Heart, HeartOff, AlertCircle } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { Heart, HeartOff, AlertCircle, Info, Check } from 'lucide-react';
+import { useAuth } from '@/lib/auth';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, setDoc, updateDoc, increment, serverTimestamp } from 'firebase/firestore';
+import { generateFingerprint } from '@/utils/deviceFingerprint';
+import { AnimatePresence, motion } from 'framer-motion';
 
 type VotingButtonsProps = {
   itemId: string;
-  initialVote?: 'rate' | 'hate' | null;
-  initialLoveCount?: number;
+  initialRateCount?: number;
   initialHateCount?: number;
-  onVoteSubmit?: (type: 'rate' | 'hate', itemId: string) => void;
-  allowChangeVote?: boolean;
+  className?: string;
   size?: 'sm' | 'md' | 'lg';
-  showCount?: boolean;
+  showTotalVotes?: boolean;
+  showPercentage?: boolean;
+  showCounts?: boolean;
   animated?: boolean;
+  onVoteSuccess?: (type: 'rate' | 'hate') => void;
+  onVoteError?: (error: string) => void;
 };
 
 export default function VotingButtons({
   itemId,
-  initialVote = null,
-  initialLoveCount = 0,
+  initialRateCount = 0,
   initialHateCount = 0,
-  onVoteSubmit,
-  allowChangeVote = true,
+  className = '',
   size = 'md',
-  showCount = true,
+  showTotalVotes = true,
+  showPercentage = true,
+  showCounts = true,
   animated = true,
+  onVoteSuccess,
+  onVoteError
 }: VotingButtonsProps) {
-  const router = useRouter();
-  const [userVote, setUserVote] = useState<'rate' | 'hate' | null>(initialVote);
-  const [loveCount, setLoveCount] = useState(initialLoveCount);
+  const { user } = useAuth();
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [rateCount, setRateCount] = useState(initialRateCount);
   const [hateCount, setHateCount] = useState(initialHateCount);
+  const [userVote, setUserVote] = useState<'rate' | 'hate' | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const [animationClass, setAnimationClass] = useState('');
 
-  // Button size classes
-  const sizeClasses = {
-    sm: {
-      button: 'px-3 py-1.5 text-sm',
-      icon: 'h-4 w-4 mr-1',
-    },
-    md: {
-      button: 'px-4 py-2 text-base',
-      icon: 'h-5 w-5 mr-2',
-    },
-    lg: {
-      button: 'px-6 py-3 text-lg',
-      icon: 'h-6 w-6 mr-2',
-    },
+  // Button size classes based on size prop
+  const buttonSizeClasses = {
+    sm: 'px-3 py-1.5 text-sm',
+    md: 'px-4 py-2 text-base',
+    lg: 'px-5 py-2.5 text-lg'
   };
 
-  // Check if user is logged in (mock implementation)
-  const isLoggedIn = false; // Replace with actual auth check
+  const iconSizeClasses = {
+    sm: 'h-4 w-4 mr-1.5',
+    md: 'h-5 w-5 mr-2',
+    lg: 'h-6 w-6 mr-2'
+  };
 
-  // Reset animation class after animation completes
+  // Generate device fingerprint on component mount
   useEffect(() => {
-    if (animationClass) {
-      const timer = setTimeout(() => {
-        setAnimationClass('');
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [animationClass]);
+    const getDeviceId = async () => {
+      if (!deviceId) {
+        try {
+          const fingerprint = await generateFingerprint();
+          setDeviceId(fingerprint);
+          
+          // Check if user has already voted on this item
+          checkPreviousVote(fingerprint);
+        } catch (err) {
+          console.error("Error generating device fingerprint:", err);
+        }
+      }
+    };
+    
+    getDeviceId();
+  }, [deviceId, itemId]);
 
-  // Handle vote submission
+  // Check for previous votes
+  const checkPreviousVote = async (deviceFingerprint: string) => {
+    try {
+      if (user) {
+        // Check authenticated user's vote
+        const voteRef = doc(db, 'users', user.uid, 'votes', itemId);
+        const voteDoc = await getDoc(voteRef);
+        
+        if (voteDoc.exists()) {
+          setUserVote(voteDoc.data().voteType);
+        }
+      } else if (deviceFingerprint) {
+        // Check anonymous vote
+        const anonVoteRef = doc(db, 'anonymousVotes', `${deviceFingerprint}_${itemId}`);
+        const anonVoteDoc = await getDoc(anonVoteRef);
+        
+        if (anonVoteDoc.exists()) {
+          setUserVote(anonVoteDoc.data().voteType);
+        }
+      }
+    } catch (err) {
+      console.error("Error checking previous vote:", err);
+    }
+  };
+
+  // Handle vote click
   const handleVote = async (voteType: 'rate' | 'hate') => {
-    // Reset error state
+    // Reset states
     setError(null);
+    setShowSuccess(false);
+    setShowLoginPrompt(false);
     
-    // Check if user is logged in
-    if (!isLoggedIn) {
+    // Prevent voting again on same option or while submitting
+    if (userVote === voteType || isSubmitting) return;
+    
+    // If not logged in, show anonymous vote disclaimer after a certain number of votes
+    if (!user && totalVotes > 10 && Math.random() > 0.7) {
       setShowLoginPrompt(true);
+      setTimeout(() => setShowLoginPrompt(false), 5000);
+    }
+    
+    // Ensure we have a device ID for anonymous voting
+    if (!user && !deviceId) {
+      setError("Unable to process your vote. Please try again.");
+      if (onVoteError) onVoteError("Unable to process your vote. Please try again.");
       return;
     }
     
-    // If user already voted and changing vote is not allowed
-    if (userVote !== null && !allowChangeVote) {
-      setError("You've already voted on this item");
-      return;
-    }
-    
-    // If user is voting the same as current vote
-    if (userVote === voteType) {
-      return;
-    }
-    
-    // Set submitting state and trigger animation
     setIsSubmitting(true);
     
-    if (animated) {
-      setAnimationClass(voteType === 'rate' ? 'vote-love-animation' : 'vote-hate-animation');
-    }
-    
     try {
-      // Simulate API call to submit vote
-      await new Promise(resolve => setTimeout(resolve, 600));
+      // Determine if this is a new vote or changing an existing vote
+      const isChangingVote = userVote !== null;
       
-      // Update counts
-      if (userVote === null) {
-        // First vote
-        if (voteType === 'rate') {
-          setLoveCount(prev => prev + 1);
+      // Calculate new vote counts
+      let newRateCount = rateCount;
+      let newHateCount = hateCount;
+      
+      if (isChangingVote) {
+        // Remove previous vote
+        if (userVote === 'rate') {
+          newRateCount -= 1;
         } else {
-          setHateCount(prev => prev + 1);
+          newHateCount -= 1;
         }
-      } else if (userVote === 'rate' && voteType === 'hate') {
-        // Change from rate to hate
-        setLoveCount(prev => prev - 1);
-        setHateCount(prev => prev + 1);
-      } else if (userVote === 'hate' && voteType === 'rate') {
-        // Change from hate to rate
-        setHateCount(prev => prev - 1);
-        setLoveCount(prev => prev + 1);
       }
       
-      // Set user vote
+      // Add new vote
+      if (voteType === 'rate') {
+        newRateCount += 1;
+      } else {
+        newHateCount += 1;
+      }
+      
+      // Update local state immediately for a responsive UI
+      setRateCount(newRateCount);
+      setHateCount(newHateCount);
       setUserVote(voteType);
       
-      // Call onVoteSubmit callback if provided
-      if (onVoteSubmit) {
-        onVoteSubmit(voteType, itemId);
+      // Record vote in Firestore
+      const itemRef = doc(db, 'items', itemId);
+      const itemDoc = await getDoc(itemRef);
+      
+      // Item batch update
+      if (itemDoc.exists()) {
+        // Item exists, update it
+        await updateDoc(itemRef, {
+          [`${voteType}Count`]: increment(1),
+          ...(isChangingVote ? { [`${userVote}Count`]: increment(-1) } : {}),
+          totalVotes: isChangingVote ? increment(0) : increment(1),
+          lastUpdated: serverTimestamp()
+        });
+      } else {
+        // Item doesn't exist, create it
+        await setDoc(itemRef, {
+          id: itemId,
+          rateCount: voteType === 'rate' ? 1 : 0,
+          hateCount: voteType === 'hate' ? 1 : 0,
+          totalVotes: 1,
+          created: serverTimestamp(),
+          lastUpdated: serverTimestamp()
+        });
       }
       
-      // Force a refresh of the page data
-      router.refresh();
+      // Record user's vote based on authentication state
+      if (user) {
+        // Authenticated vote
+        const voteRef = doc(db, 'users', user.uid, 'votes', itemId);
+        await setDoc(voteRef, {
+          itemId,
+          voteType,
+          timestamp: serverTimestamp(),
+          previousVote: isChangingVote ? userVote : null
+        });
+        
+        // Update user's vote count
+        const userRef = doc(db, 'users', user.uid);
+        if (!isChangingVote) {
+          await updateDoc(userRef, {
+            voteCount: increment(1)
+          });
+        }
+      } else if (deviceId) {
+        // Anonymous vote
+        const anonVoteRef = doc(db, 'anonymousVotes', `${deviceId}_${itemId}`);
+        await setDoc(anonVoteRef, {
+          deviceId,
+          itemId,
+          voteType,
+          timestamp: serverTimestamp(),
+          previousVote: isChangingVote ? userVote : null
+        });
+      }
+      
+      // Show success message
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 2000);
+      
+      // Trigger callback if provided
+      if (onVoteSuccess) {
+        onVoteSuccess(voteType);
+      }
+      
     } catch (err) {
-      setError('Failed to submit your vote. Please try again.');
-      console.error('Vote submission error:', err);
+      console.error("Error submitting vote:", err);
+      const errorMessage = "Failed to record your vote. Please try again.";
+      setError(errorMessage);
+      
+      if (onVoteError) onVoteError(errorMessage);
+      
+      // Revert UI state on error
+      if (userVote) {
+        // If changing vote, revert to previous state
+        setRateCount(initialRateCount);
+        setHateCount(initialHateCount);
+        setUserVote(userVote);
+      } else {
+        // If new vote, remove the vote
+        if (voteType === 'rate') {
+          setRateCount(prev => prev - 1);
+        } else {
+          setHateCount(prev => prev - 1);
+        }
+        setUserVote(null);
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  // Redirect to login page
-  const handleLoginPrompt = () => {
-    router.push('/login');
-  };
+  
+  // Calculate percentages
+  const totalVotes = rateCount + hateCount;
+  const ratePercentage = totalVotes > 0 ? Math.round((rateCount / totalVotes) * 100) : 50;
+  const hatePercentage = 100 - ratePercentage;
 
   return (
-    <div className="flex flex-col space-y-2">
+    <div className={`flex flex-col ${className}`}>
       <div className="flex items-center space-x-3">
         {/* Rate It Button */}
-        <button
+        <motion.button
           onClick={() => handleVote('rate')}
-          disabled={isSubmitting || (userVote === 'rate' && !allowChangeVote)}
+          disabled={isSubmitting}
+          whileTap={animated ? { scale: 0.95 } : {}}
           className={`
             flex items-center justify-center rounded-full font-medium transition-all
-            ${sizeClasses[size].button}
+            ${buttonSizeClasses[size]}
             ${userVote === 'rate' 
-              ? 'bg-green-100 text-green-700 border border-green-300 hover:bg-green-200' 
-              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 hover:text-green-600'
+              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-800' 
+              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-green-600 dark:hover:text-green-400'
             }
             ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}
-            ${animationClass === 'vote-love-animation' ? 'animate-pulse ring-2 ring-green-400' : ''}
           `}
         >
           <Heart 
             className={`
-              ${sizeClasses[size].icon}
-              ${userVote === 'rate' ? 'text-green-600 fill-green-600' : 'text-gray-500'}
+              ${iconSizeClasses[size]}
+              ${userVote === 'rate' 
+                ? 'text-green-600 dark:text-green-400 fill-green-600 dark:fill-green-400' 
+                : 'text-gray-500 dark:text-gray-400'
+              }
             `} 
           />
           <span>Rate It</span>
-          {showCount && (
-            <span className="ml-2 bg-white bg-opacity-70 px-1.5 py-0.5 rounded-full text-sm">
-              {loveCount}
+          {showCounts && (
+            <span className="ml-2 bg-white dark:bg-gray-700 dark:text-gray-200 bg-opacity-70 px-1.5 py-0.5 rounded-full text-sm">
+              {rateCount > 999 ? `${(rateCount/1000).toFixed(1)}k` : rateCount}
             </span>
           )}
-        </button>
+        </motion.button>
         
         {/* Hate It Button */}
-        <button
+        <motion.button
           onClick={() => handleVote('hate')}
-          disabled={isSubmitting || (userVote === 'hate' && !allowChangeVote)}
+          disabled={isSubmitting}
+          whileTap={animated ? { scale: 0.95 } : {}}
           className={`
             flex items-center justify-center rounded-full font-medium transition-all
-            ${sizeClasses[size].button}
+            ${buttonSizeClasses[size]}
             ${userVote === 'hate' 
-              ? 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200' 
-              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 hover:text-red-600'
+              ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800' 
+              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-red-600 dark:hover:text-red-400'
             }
             ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}
-            ${animationClass === 'vote-hate-animation' ? 'animate-pulse ring-2 ring-red-400' : ''}
           `}
         >
           <HeartOff 
             className={`
-              ${sizeClasses[size].icon}
-              ${userVote === 'hate' ? 'text-red-600' : 'text-gray-500'}
+              ${iconSizeClasses[size]}
+              ${userVote === 'hate' 
+                ? 'text-red-600 dark:text-red-400' 
+                : 'text-gray-500 dark:text-gray-400'
+              }
             `} 
           />
           <span>Hate It</span>
-          {showCount && (
-            <span className="ml-2 bg-white bg-opacity-70 px-1.5 py-0.5 rounded-full text-sm">
-              {hateCount}
+          {showCounts && (
+            <span className="ml-2 bg-white dark:bg-gray-700 dark:text-gray-200 bg-opacity-70 px-1.5 py-0.5 rounded-full text-sm">
+              {hateCount > 999 ? `${(hateCount/1000).toFixed(1)}k` : hateCount}
             </span>
           )}
-        </button>
+        </motion.button>
       </div>
       
+      {/* Progress bars showing vote percentages */}
+      {showPercentage && (
+        <div className="mt-4 space-y-2">
+          <div>
+            <div className="flex justify-between mb-1 text-xs text-gray-500 dark:text-gray-400">
+              <span>Rate It</span>
+              <span>{ratePercentage}%</span>
+            </div>
+            <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <motion.div 
+                className="h-2 bg-green-500 rounded-full"
+                initial={{ width: `0%` }}
+                animate={{ width: `${ratePercentage}%` }}
+                transition={{ duration: animated ? 0.5 : 0 }}
+              ></motion.div>
+            </div>
+          </div>
+          <div>
+            <div className="flex justify-between mb-1 text-xs text-gray-500 dark:text-gray-400">
+              <span>Hate It</span>
+              <span>{hatePercentage}%</span>
+            </div>
+            <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <motion.div 
+                className="h-2 bg-red-500 rounded-full"
+                initial={{ width: `0%` }}
+                animate={{ width: `${hatePercentage}%` }}
+                transition={{ duration: animated ? 0.5 : 0 }}
+              ></motion.div>
+            </div>
+          </div>
+          {showTotalVotes && (
+            <div className="text-xs text-gray-500 dark:text-gray-400 text-center">
+              {totalVotes.toLocaleString()} total {totalVotes === 1 ? 'vote' : 'votes'}
+            </div>
+          )}
+        </div>
+      )}
+      
       {/* Error Message */}
-      {error && (
-        <div className="flex items-center text-red-600 text-sm mt-1">
-          <AlertCircle className="h-4 w-4 mr-1" />
-          <span>{error}</span>
-        </div>
-      )}
-      
-      {/* Login Prompt */}
-      {showLoginPrompt && (
-        <div className="mt-2 p-3 bg-blue-50 text-blue-800 rounded-md text-sm">
-          <p className="mb-2">Sign in to rate this item</p>
-          <button 
-            onClick={handleLoginPrompt}
-            className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md text-sm transition-colors"
+      <AnimatePresence>
+        {error && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="flex items-center text-red-600 dark:text-red-400 text-sm mt-2 bg-red-50 dark:bg-red-900/20 p-2 rounded-md"
           >
-            Sign In / Register
-          </button>
-        </div>
-      )}
+            <AlertCircle className="h-4 w-4 mr-1 flex-shrink-0" />
+            <span>{error}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
       
-      {/* Add these styles to your globals.css */}
-      <style jsx>{`
-        @keyframes pulse-green {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.4); }
-          50% { box-shadow: 0 0 0 8px rgba(74, 222, 128, 0); }
-        }
-        
-        @keyframes pulse-red {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.4); }
-          50% { box-shadow: 0 0 0 8px rgba(248, 113, 113, 0); }
-        }
-        
-        .vote-love-animation {
-          animation: pulse-green 1s;
-        }
-        
-        .vote-hate-animation {
-          animation: pulse-red 1s;
-        }
-      `}</style>
+      {/* Success Message */}
+      <AnimatePresence>
+        {showSuccess && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="flex items-center justify-center text-green-600 dark:text-green-400 text-sm mt-2 bg-green-50 dark:bg-green-900/20 p-2 rounded-md"
+          >
+            <Check className="h-4 w-4 mr-1 flex-shrink-0" />
+            <span>Your vote has been recorded!</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      {/* Login Prompt for Anonymous Users */}
+      <AnimatePresence>
+        {showLoginPrompt && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="flex items-center text-blue-600 dark:text-blue-400 text-sm mt-2 bg-blue-50 dark:bg-blue-900/20 p-2 rounded-md"
+          >
+            <Info className="h-4 w-4 mr-1 flex-shrink-0" />
+            <span>Create an account to save your votes and get unlimited voting!</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
