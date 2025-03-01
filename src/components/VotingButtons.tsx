@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Heart, HeartOff, AlertCircle, Info, Check } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { db } from '@/lib/firebase';
@@ -58,27 +58,8 @@ export default function VotingButtons({
     lg: 'h-6 w-6 mr-2'
   };
 
-  // Generate device fingerprint on component mount
-  useEffect(() => {
-    const getDeviceId = async () => {
-      if (!deviceId) {
-        try {
-          const fingerprint = await generateFingerprint();
-          setDeviceId(fingerprint);
-          
-          // Check if user has already voted on this item
-          checkPreviousVote(fingerprint);
-        } catch (err) {
-          console.error("Error generating device fingerprint:", err);
-        }
-      }
-    };
-    
-    getDeviceId();
-  }, [deviceId, itemId]);
-
-  // Check for previous votes
-  const checkPreviousVote = async (deviceFingerprint: string) => {
+  // Check for previous votes - moved to a useCallback to resolve dependency issues
+  const checkPreviousVote = useCallback(async (deviceFingerprint: string) => {
     try {
       if (user) {
         // Check authenticated user's vote
@@ -100,7 +81,26 @@ export default function VotingButtons({
     } catch (err) {
       console.error("Error checking previous vote:", err);
     }
-  };
+  }, [user, itemId]);
+
+  // Generate device fingerprint on component mount
+  useEffect(() => {
+    const getDeviceId = async () => {
+      if (!deviceId) {
+        try {
+          const fingerprint = await generateFingerprint();
+          setDeviceId(fingerprint);
+          
+          // Check if user has already voted on this item
+          await checkPreviousVote(fingerprint);
+        } catch (err) {
+          console.error("Error generating device fingerprint:", err);
+        }
+      }
+    };
+    
+    getDeviceId();
+  }, [deviceId, checkPreviousVote]);
 
   // Handle vote click
   const handleVote = async (voteType: 'rate' | 'hate') => {
@@ -269,6 +269,7 @@ export default function VotingButtons({
             }
             ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}
           `}
+          type="button"
         >
           <Heart 
             className={`
@@ -301,6 +302,7 @@ export default function VotingButtons({
             }
             ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}
           `}
+          type="button"
         >
           <HeartOff 
             className={`

@@ -11,10 +11,19 @@ type SentimentAnalysisProps = {
   }>;
 };
 
+type SentimentResult = {
+  sentiment: 'positive' | 'negative' | 'neutral';
+  positivePercentage: number;
+  negativePercentage: number;
+  summary: string;
+  keyPositive: string[];
+  keyNegative: string[];
+};
+
 // This is a placeholder for the actual AI sentiment analysis
 // In a real implementation, you would call an API endpoint
 // that uses a language model to analyze the comments
-async function analyzeSentiment(comments: Array<{ id: string; text: string }>) {
+async function analyzeSentiment(comments: Array<{ id: string; text: string }>): Promise<SentimentResult> {
   // Simulate API call
   await new Promise(resolve => setTimeout(resolve, 1500));
   
@@ -60,7 +69,7 @@ async function analyzeSentiment(comments: Array<{ id: string; text: string }>) {
 }
 
 export default function SentimentAnalysis({ itemId, comments }: SentimentAnalysisProps) {
-  const [analysis, setAnalysis] = useState<any>(null);
+  const [analysis, setAnalysis] = useState<SentimentResult | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   
@@ -73,6 +82,7 @@ export default function SentimentAnalysis({ itemId, comments }: SentimentAnalysi
     
     const performAnalysis = async () => {
       try {
+        // Call the analysis function using the itemId and comments
         const result = await analyzeSentiment(comments);
         setAnalysis(result);
       } catch (err) {
@@ -84,7 +94,7 @@ export default function SentimentAnalysis({ itemId, comments }: SentimentAnalysi
     };
     
     performAnalysis();
-  }, [comments]);
+  }, [comments, itemId]);
   
   // Don't show anything if there are too few comments
   if (comments.length < 3 && !isLoading) {
@@ -92,7 +102,7 @@ export default function SentimentAnalysis({ itemId, comments }: SentimentAnalysi
   }
   
   return (
-    <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
       <h2 className="text-xl font-semibold flex items-center mb-4">
         <BarChart2 className="mr-2 h-5 w-5" />
         Comment Analysis
@@ -101,23 +111,23 @@ export default function SentimentAnalysis({ itemId, comments }: SentimentAnalysi
       {isLoading ? (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="animate-spin h-8 w-8 text-blue-500 mr-2" />
-          <span className="text-gray-600">Analyzing comments...</span>
+          <span className="text-gray-600 dark:text-gray-300">Analyzing comments...</span>
         </div>
       ) : error ? (
         <div className="text-red-500 py-4">{error}</div>
       ) : analysis ? (
         <div>
-          <p className="text-gray-700 mb-4">{analysis.summary}</p>
+          <p className="text-gray-700 dark:text-gray-300 mb-4">{analysis.summary}</p>
           
           <div className="mb-6">
             <div className="flex justify-between mb-1">
-              <span className="text-green-600 font-medium flex items-center">
+              <span className="text-green-600 dark:text-green-400 font-medium flex items-center">
                 <ThumbsUp className="h-4 w-4 mr-1" />
                 Positive
               </span>
-              <span className="text-green-600 font-bold">{analysis.positivePercentage}%</span>
+              <span className="text-green-600 dark:text-green-400 font-bold">{analysis.positivePercentage}%</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2.5">
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
               <div
                 className="bg-green-500 h-2.5 rounded-full"
                 style={{ width: `${analysis.positivePercentage}%` }}
@@ -125,13 +135,13 @@ export default function SentimentAnalysis({ itemId, comments }: SentimentAnalysi
             </div>
             
             <div className="flex justify-between mb-1 mt-2">
-              <span className="text-red-600 font-medium flex items-center">
+              <span className="text-red-600 dark:text-red-400 font-medium flex items-center">
                 <ThumbsDown className="h-4 w-4 mr-1" />
                 Negative
               </span>
-              <span className="text-red-600 font-bold">{analysis.negativePercentage}%</span>
+              <span className="text-red-600 dark:text-red-400 font-bold">{analysis.negativePercentage}%</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2.5">
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
               <div
                 className="bg-red-500 h-2.5 rounded-full"
                 style={{ width: `${analysis.negativePercentage}%` }}
@@ -141,9 +151,9 @@ export default function SentimentAnalysis({ itemId, comments }: SentimentAnalysi
           
           {analysis.keyPositive.length > 0 && (
             <div className="mb-4">
-              <h3 className="font-medium text-gray-900 mb-2">Key Positive Points:</h3>
-              <ul className="list-disc list-inside text-gray-700 pl-2">
-                {analysis.keyPositive.map((point: string, index: number) => (
+              <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Key Positive Points:</h3>
+              <ul className="list-disc list-inside text-gray-700 dark:text-gray-300 pl-2">
+                {analysis.keyPositive.map((point, index) => (
                   <li key={`pos-${index}`}>{point}</li>
                 ))}
               </ul>
@@ -152,9 +162,9 @@ export default function SentimentAnalysis({ itemId, comments }: SentimentAnalysi
           
           {analysis.keyNegative.length > 0 && (
             <div>
-              <h3 className="font-medium text-gray-900 mb-2">Key Negative Points:</h3>
-              <ul className="list-disc list-inside text-gray-700 pl-2">
-                {analysis.keyNegative.map((point: string, index: number) => (
+              <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Key Negative Points:</h3>
+              <ul className="list-disc list-inside text-gray-700 dark:text-gray-300 pl-2">
+                {analysis.keyNegative.map((point, index) => (
                   <li key={`neg-${index}`}>{point}</li>
                 ))}
               </ul>

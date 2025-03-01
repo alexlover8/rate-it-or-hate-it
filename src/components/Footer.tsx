@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Heart, Twitter, Instagram, Github, Mail, Linkedin } from 'lucide-react';
+import { Heart, Twitter, Instagram, Github, Linkedin } from 'lucide-react';
 
 export default function Footer() {
   // Current year for copyright
@@ -118,7 +118,7 @@ export default function Footer() {
             <p className="text-gray-400 mb-4">
               Subscribe to our newsletter for the latest trends and popular items.
             </p>
-            <form className="flex flex-col space-y-2">
+            <form className="flex flex-col space-y-2" onSubmit={(e) => e.preventDefault()}>
               <input 
                 type="email" 
                 placeholder="Your email address" 

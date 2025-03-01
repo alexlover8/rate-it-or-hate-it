@@ -258,17 +258,19 @@ export default function SearchBar({
               ))}
               <li className="p-2 bg-gray-50 text-center">
                 <button
+                  type="button"
                   onClick={handleSubmit}
                   className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                 >
-                  See all results for "{query}"
+                  See all results for &quot;{query}&quot;
                 </button>
               </li>
             </ul>
           ) : query.length > 1 ? (
             <div className="p-4 text-center text-gray-500">
-              <p>No results found for "{query}"</p>
+              <p>No results found for &quot;{query}&quot;</p>
               <button
+                type="button"
                 onClick={handleSubmit}
                 className="mt-2 text-blue-600 hover:text-blue-800 text-sm font-medium"
               >
@@ -282,6 +284,7 @@ export default function SearchBar({
                 {popularSearches.map((term) => (
                   <button
                     key={term}
+                    type="button"
                     onClick={() => handlePopularSearch(term)}
                     className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md text-gray-800 transition-colors"
                   >

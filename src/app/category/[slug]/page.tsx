@@ -1,5 +1,6 @@
 import { capitalize } from 'lodash';
 import Link from 'next/link';
+import Image from 'next/image';
 
 // Define type for individual item
 type Item = {
@@ -85,7 +86,7 @@ export default async function CategoryPage({
     return (
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold mb-6">Category Not Found</h1>
-        <p className="mb-4">Sorry, we couldn't find any items in the "{slug}" category.</p>
+        <p className="mb-4">Sorry, we couldn&apos;t find any items in the &quot;{slug}&quot; category.</p>
         <Link href="/" className="text-blue-500 hover:underline">
           Return to home page
         </Link>
@@ -99,33 +100,36 @@ export default async function CategoryPage({
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {items.map((item) => (
-          <Link href={`/item/${item.id}`} key={item.id}>
-            <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300 h-full">
+          <Link href={`/item/${item.id}`} key={item.id} className="block">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300 h-full">
               {item.imageUrl ? (
-                <div className="h-48 bg-gray-200 relative">
-                  <div 
-                    className="w-full h-full bg-center bg-cover" 
-                    style={{ backgroundImage: `url(${item.imageUrl})` }}
+                <div className="h-48 bg-gray-200 dark:bg-gray-700 relative">
+                  <Image 
+                    src={item.imageUrl} 
+                    alt={item.name}
+                    fill
+                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                    className="object-cover"
                   />
                 </div>
               ) : (
-                <div className="h-48 bg-gray-200 flex items-center justify-center">
-                  <span className="text-gray-400">No image available</span>
+                <div className="h-48 bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                  <span className="text-gray-400 dark:text-gray-500">No image available</span>
                 </div>
               )}
               
               <div className="p-4">
-                <h2 className="text-xl font-semibold mb-2">{item.name}</h2>
-                <p className="text-gray-600">{item.description}</p>
+                <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">{item.name}</h2>
+                <p className="text-gray-600 dark:text-gray-300">{item.description}</p>
                 
                 <div className="mt-4 flex justify-between items-center">
-                  <div className="bg-gray-100 h-2 rounded-full flex-grow mr-2">
+                  <div className="bg-gray-100 dark:bg-gray-700 h-2 rounded-full flex-grow mr-2">
                     <div 
                       className="bg-green-500 h-2 rounded-full" 
                       style={{ width: `${Math.random() * 100}%` }}
                     />
                   </div>
-                  <span className="text-sm text-gray-500">Rate It</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Rate It</span>
                 </div>
               </div>
             </div>

@@ -3,6 +3,26 @@
 import { useEffect } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 
+type GTagEvent = {
+  action: string;
+  category?: string;
+  label?: string;
+  value?: number;
+  [key: string]: any; // Allow additional properties
+};
+
+// Declare global gtag function
+declare global {
+  interface Window {
+    gtag?: (
+      command: 'config' | 'event', 
+      targetId: string, 
+      config?: Record<string, unknown>
+    ) => void;
+    trackEvent?: (eventName: string, properties?: Record<string, unknown>) => void;
+  }
+}
+
 export function Analytics() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -23,8 +43,7 @@ export function Analytics() {
     // Examples include Google Analytics, Mixpanel, Plausible, etc.
     
     // Google Analytics example (GA4)
-    if (typeof window !== 'undefined' && 'gtag' in window) {
-      // @ts-ignore - gtag is added via script in the layout
+    if (typeof window !== 'undefined' && window.gtag) {
       window.gtag('config', 'G-XXXXXXXXXX', {
         page_path: url,
       });
@@ -39,11 +58,10 @@ export function Analytics() {
   };
 
   // Helper function to track events
-  const trackEvent = (eventName: string, properties?: Record<string, any>) => {
+  const trackEvent = (eventName: string, properties?: Record<string, unknown>) => {
     // Google Analytics example
-    if (typeof window !== 'undefined' && 'gtag' in window) {
-      // @ts-ignore
-      window.gtag('event', eventName, properties);
+    if (typeof window !== 'undefined' && window.gtag) {
+      window.gtag('event', eventName, properties || {});
     }
     
     // Console log for development (remove in production)
@@ -54,7 +72,6 @@ export function Analytics() {
 
   // Expose the tracking function to the window object for use in other components
   if (typeof window !== 'undefined') {
-    // @ts-ignore
     window.trackEvent = trackEvent;
   }
 
@@ -63,10 +80,9 @@ export function Analytics() {
 }
 
 // Export the track event function for use outside React components
-export const trackEvent = (eventName: string, properties?: Record<string, any>) => {
+export const trackEvent = (eventName: string, properties?: Record<string, unknown>) => {
   // Check if we're in the browser and the function exists
-  if (typeof window !== 'undefined' && 'trackEvent' in window) {
-    // @ts-ignore
+  if (typeof window !== 'undefined' && window.trackEvent) {
     window.trackEvent(eventName, properties);
   }
 };
