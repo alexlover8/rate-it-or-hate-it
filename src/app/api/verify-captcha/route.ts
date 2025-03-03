@@ -1,5 +1,3 @@
-'use client';
-
 // app/api/verify-captcha/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 

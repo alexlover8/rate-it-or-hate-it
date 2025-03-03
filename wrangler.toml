@@ -1,0 +1,5 @@
+name = "rate-it-or-hate-it"
+compatibility_date = "2023-10-30"
+
+[build]
+command = "npm run build"

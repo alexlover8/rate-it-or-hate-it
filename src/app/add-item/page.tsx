@@ -1,8 +1,7 @@
-// src/app/add-item/page.tsx
 'use client';
-
-import { useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+// src/app/add-item/page.tsx
+import { useState, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, Upload, X, AlertCircle, Check } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { db } from '@/lib/firebase';
@@ -23,8 +22,10 @@ const categories = [
   { id: 'trends-social', name: 'Trends & Social Issues' },
 ];
 
-export default function AddItemPage() {
+// Inner component that contains all client-side hooks and logic
+function AddItemForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -312,5 +313,21 @@ export default function AddItemPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Main page component with Suspense
+export default function AddItemPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center">
+          <Loader2 className="animate-spin h-8 w-8 text-blue-600" />
+          <span className="mt-2 text-gray-600">Loading...</span>
+        </div>
+      </div>
+    }>
+      <AddItemForm />
+    </Suspense>
   );
 }

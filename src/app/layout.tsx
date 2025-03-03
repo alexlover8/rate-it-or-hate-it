@@ -1,10 +1,8 @@
+// This must be a server component to use metadata
 import './globals.css';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
 import { Poppins } from 'next/font/google';
-import { Analytics } from '@/components/Analytics';
 import Script from 'next/script';
-import { AuthProvider } from '@/lib/auth';
+import ClientLayout from '@/components/ClientLayout';
 
 /**
  * Configure Poppins font with Next.js optimized font loading
@@ -91,32 +89,9 @@ export default function RootLayout({
         <link rel="preconnect" href="https://firebaseapp.com" crossOrigin="anonymous" />
       </head>
       <body className="font-poppins bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 flex flex-col min-h-screen antialiased">
-        <AuthProvider>
-          {/* Global loading indicator for auth state */}
-          <div id="auth-loading-indicator" className="fixed top-0 left-0 w-full h-1 bg-blue-500 opacity-0 transition-opacity duration-300 z-50"></div>
-          
-          {/* Skip to content link for accessibility */}
-          <a 
-            href="#main-content" 
-            className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:p-4 focus:bg-blue-500 focus:text-white focus:z-50"
-          >
-            Skip to content
-          </a>
-          
-          {/* Site header with navigation */}
-          <Header />
-          
-          {/* Main content area - flex-grow ensures it fills available space */}
-          <main id="main-content" className="flex-grow">
-            {children}
-          </main>
-          
-          {/* Site footer with links and information */}
-          <Footer />
-          
-          {/* Analytics component for tracking (non-rendering) */}
-          <Analytics />
-        </AuthProvider>
+        <ClientLayout>
+          {children}
+        </ClientLayout>
         
         {/* JSON-LD Structured Data for SEO */}
         <Script 

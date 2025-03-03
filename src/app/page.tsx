@@ -1,8 +1,9 @@
 'use client';
 
+import { Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Heart, Sparkles, Flame, ArrowRight, TrendingUp } from 'lucide-react';
+import { Heart, Sparkles, Flame, ArrowRight, TrendingUp, Loader2 } from 'lucide-react';
 import SearchBar from '@/components/SearchBar';
 import { useRouter } from 'next/navigation';
 import React from 'react';
@@ -73,12 +74,13 @@ const categories = [
   { name: 'Movies', slug: 'movies', count: 65, icon: '🎬' },
 ];
 
-export default function Home() {
+// Inner component with client-side hooks
+function HomeContent() {
   const router = useRouter();
   
   const handleItemClick = (itemId: string, e: React.MouseEvent<HTMLDivElement>) => {
     // If the click is on a link, let the link handle the navigation
-    if (e.target instanceof Node && e.target.closest('a')) {
+    if (e.target instanceof Element && e.target.closest('a')) {
       e.stopPropagation();
       return;
     }
@@ -343,5 +345,21 @@ export default function Home() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Main page component with Suspense
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="flex flex-col items-center">
+          <Loader2 className="animate-spin h-8 w-8 text-blue-600" />
+          <span className="mt-2 text-gray-600 dark:text-gray-300">Loading...</span>
+        </div>
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
   );
 }

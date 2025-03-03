@@ -1,6 +1,9 @@
 import { capitalize } from 'lodash';
 import Link from 'next/link';
 import Image from 'next/image';
+import { Suspense } from 'react';
+import { Loader2 } from 'lucide-react';
+import CategoryItemsList from './CategoryItemsList';
 
 // Define type for individual item
 type Item = {
@@ -15,60 +18,69 @@ type CategoryItems = {
   [key: string]: Item[];
 };
 
+// Mock data that would come from your database or API
+const items: CategoryItems = {
+  electronics: [
+    { 
+      id: 1, 
+      name: 'Smartphone', 
+      description: 'Latest model with high-res camera.',
+      imageUrl: '/images/smartphone.jpg'
+    },
+    { 
+      id: 2, 
+      name: 'Laptop', 
+      description: 'Powerful machine for work and play.',
+      imageUrl: '/images/laptop.jpg'
+    },
+    { 
+      id: 5, 
+      name: 'Smart Watch', 
+      description: 'Track your fitness and stay connected.',
+      imageUrl: '/images/smartwatch.jpg'
+    },
+  ],
+  books: [
+    { 
+      id: 3, 
+      name: 'Novel', 
+      description: 'A gripping tale of adventure.',
+      imageUrl: '/images/novel.jpg'
+    },
+    { 
+      id: 4, 
+      name: 'Biography', 
+      description: 'The life story of a famous figure.',
+      imageUrl: '/images/biography.jpg'
+    },
+  ],
+  companies: [
+    { 
+      id: 6, 
+      name: 'Tech Giant', 
+      description: 'Leading innovation in technology.',
+      imageUrl: '/images/techcompany.jpg'
+    },
+    { 
+      id: 7, 
+      name: 'Retail Chain', 
+      description: 'Your one-stop shop for everything.',
+      imageUrl: '/images/retail.jpg'
+    },
+  ],
+};
+
+// Required for static export - tells Next.js which slugs to generate at build time
+export async function generateStaticParams() {
+  // Return all category slugs that should be pre-rendered
+  return Object.keys(items).map(slug => ({
+    slug,
+  }));
+}
+
 // Mock function to simulate fetching items by category slug
 async function getItemsByCategory(slug: string): Promise<Item[]> {
   // This would be replaced with a real API call or database query
-  const items: CategoryItems = {
-    electronics: [
-      { 
-        id: 1, 
-        name: 'Smartphone', 
-        description: 'Latest model with high-res camera.',
-        imageUrl: '/images/smartphone.jpg'
-      },
-      { 
-        id: 2, 
-        name: 'Laptop', 
-        description: 'Powerful machine for work and play.',
-        imageUrl: '/images/laptop.jpg'
-      },
-      { 
-        id: 5, 
-        name: 'Smart Watch', 
-        description: 'Track your fitness and stay connected.',
-        imageUrl: '/images/smartwatch.jpg'
-      },
-    ],
-    books: [
-      { 
-        id: 3, 
-        name: 'Novel', 
-        description: 'A gripping tale of adventure.',
-        imageUrl: '/images/novel.jpg'
-      },
-      { 
-        id: 4, 
-        name: 'Biography', 
-        description: 'The life story of a famous figure.',
-        imageUrl: '/images/biography.jpg'
-      },
-    ],
-    companies: [
-      { 
-        id: 6, 
-        name: 'Tech Giant', 
-        description: 'Leading innovation in technology.',
-        imageUrl: '/images/techcompany.jpg'
-      },
-      { 
-        id: 7, 
-        name: 'Retail Chain', 
-        description: 'Your one-stop shop for everything.',
-        imageUrl: '/images/retail.jpg'
-      },
-    ],
-  };
-  
   return items[slug] || []; // Return items for the slug, or an empty array if none exist
 }
 
@@ -98,44 +110,14 @@ export default async function CategoryPage({
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-6">{categoryName}</h1>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {items.map((item) => (
-          <Link href={`/item/${item.id}`} key={item.id} className="block">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300 h-full">
-              {item.imageUrl ? (
-                <div className="h-48 bg-gray-200 dark:bg-gray-700 relative">
-                  <Image 
-                    src={item.imageUrl} 
-                    alt={item.name}
-                    fill
-                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                    className="object-cover"
-                  />
-                </div>
-              ) : (
-                <div className="h-48 bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-                  <span className="text-gray-400 dark:text-gray-500">No image available</span>
-                </div>
-              )}
-              
-              <div className="p-4">
-                <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">{item.name}</h2>
-                <p className="text-gray-600 dark:text-gray-300">{item.description}</p>
-                
-                <div className="mt-4 flex justify-between items-center">
-                  <div className="bg-gray-100 dark:bg-gray-700 h-2 rounded-full flex-grow mr-2">
-                    <div 
-                      className="bg-green-500 h-2 rounded-full" 
-                      style={{ width: `${Math.random() * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Rate It</span>
-                </div>
-              </div>
-            </div>
-          </Link>
-        ))}
-      </div>
+      <Suspense fallback={
+        <div className="flex justify-center items-center py-12">
+          <Loader2 className="animate-spin h-8 w-8 text-blue-600" />
+          <span className="ml-2 text-gray-600">Loading items...</span>
+        </div>
+      }>
+        <CategoryItemsList items={items} />
+      </Suspense>
     </div>
   );
 }
