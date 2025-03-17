@@ -2,11 +2,10 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
-  getAuth, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut, 
   onAuthStateChanged, 
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut as firebaseSignOut,
   sendPasswordResetEmail,
   updateProfile,
   User
@@ -14,296 +13,299 @@ import {
 import { doc, getDoc, setDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 
+// Types for user profile and auth context
 type UserProfile = {
-  uid: string;
-  email: string | null;
-  displayName: string | null;
+  displayName: string;
+  email: string;
   photoURL: string | null;
-  createdAt: Date;
-  voteCount?: number;
-  rateLimit?: {
-    votes: {
-      hourly: number;
-      daily: number;
-      lastVoteTime: Date | null;
-    };
+  bio: string | null;
+  joinDate: Date;
+  voteCount: {
+    total: number;
+    rate: number;
+    meh: number;
+    hate: number;
   };
 };
 
 type AuthContextType = {
   user: User | null;
   userProfile: UserProfile | null;
-  isLoading: boolean;
   error: string | null;
-  signUp: (email: string, password: string, name?: string) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
+  isLoading: boolean;
+  signIn: (email: string, password: string) => Promise<any>;
+  signUp: (email: string, password: string, displayName: string) => Promise<any>;
   logOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
-  updateUserProfile: (data: { displayName?: string; photoURL?: string }) => Promise<void>;
-  clearError: () => void;
+  updateUserProfile: (data: Partial<UserProfile>) => Promise<void>;
 };
 
-const AuthContext = createContext<AuthContextType | null>(null);
+// Create context with default values
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  userProfile: null,
+  error: null,
+  isLoading: true,
+  signIn: async () => ({}),
+  signUp: async () => ({}),
+  logOut: async () => {},
+  resetPassword: async () => {},
+  updateUserProfile: async () => {},
+});
 
+// Check if we're on the client side
+const isClient = typeof window !== 'undefined';
+
+// Auth provider component
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Clear any previous error
-  const clearError = () => setError(null);
-
+  // Listen for auth state changes
   useEffect(() => {
-    let unsubscribe: () => void;
-    
-    const initializeAuth = async () => {
-      try {
-        unsubscribe = onAuthStateChanged(auth, async (authUser) => {
-          if (authUser) {
-            setUser(authUser);
-            
-            // Fetch user profile
-            try {
-              const userRef = doc(db, 'users', authUser.uid);
-              const userDoc = await getDoc(userRef);
-              
-              if (userDoc.exists()) {
-                const userData = userDoc.data();
-                setUserProfile({
-                  uid: authUser.uid,
-                  email: authUser.email,
-                  displayName: authUser.displayName,
-                  photoURL: authUser.photoURL,
-                  createdAt: userData.createdAt?.toDate() || new Date(),
-                  voteCount: userData.voteCount || 0,
-                  rateLimit: userData.rateLimit ? {
-                    votes: {
-                      hourly: userData.rateLimit.votes?.hourly || 0,
-                      daily: userData.rateLimit.votes?.daily || 0,
-                      lastVoteTime: userData.rateLimit.votes?.lastVoteTime?.toDate() || null
-                    }
-                  } : undefined
-                });
-              } else {
-                // Create profile if it doesn't exist
-                const newProfile = {
-                  uid: authUser.uid,
-                  email: authUser.email,
-                  displayName: authUser.displayName,
-                  photoURL: authUser.photoURL,
-                  createdAt: new Date(),
-                  voteCount: 0,
-                  rateLimit: {
-                    votes: {
-                      hourly: 0,
-                      daily: 0,
-                      lastVoteTime: null
-                    }
-                  }
-                };
-                
-                await setDoc(userRef, {
-                  email: authUser.email,
-                  displayName: authUser.displayName,
-                  photoURL: authUser.photoURL,
-                  createdAt: serverTimestamp(),
-                  voteCount: 0,
-                  rateLimit: {
-                    votes: {
-                      hourly: 0,
-                      daily: 0,
-                      lastVoteTime: null
-                    }
-                  }
-                });
-                
-                setUserProfile(newProfile);
-              }
-            } catch (err) {
-              console.error("Error fetching user profile:", err);
-            }
-          } else {
-            setUser(null);
-            setUserProfile(null);
-          }
-          
-          setIsLoading(false);
-        });
-      } catch (err) {
-        console.error("Error setting up auth state observer:", err);
-        setIsLoading(false);
-      }
-    };
+    // Skip on server-side
+    if (!isClient) {
+      setIsLoading(false);
+      return;
+    }
 
-    initializeAuth();
-    
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+    try {
+      const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+        setUser(currentUser);
+        
+        if (currentUser) {
+          // Fetch user profile from Firestore
+          try {
+            const userRef = doc(db, 'users', currentUser.uid);
+            const userSnap = await getDoc(userRef);
+            
+            if (userSnap.exists()) {
+              setUserProfile(userSnap.data() as UserProfile);
+            } else {
+              console.log('No user profile found');
+            }
+          } catch (err) {
+            console.error('Error fetching user profile:', err);
+          }
+        } else {
+          setUserProfile(null);
+        }
+        
+        setIsLoading(false);
+      });
+      
+      return () => unsubscribe();
+    } catch (error) {
+      console.error("Auth state monitoring error:", error);
+      setIsLoading(false);
+      return () => {};
+    }
   }, []);
 
-  const signUp = async (email: string, password: string, name?: string) => {
-    clearError();
+  // Sign up function
+  const signUp = async (email: string, password: string, displayName: string) => {
+    if (!isClient) {
+      throw new Error("Authentication is not available on the server");
+    }
+    
     setIsLoading(true);
+    setError(null);
     
     try {
-      const result = await createUserWithEmailAndPassword(auth, email, password);
+      // Create user with Firebase Auth
+      const { user } = await createUserWithEmailAndPassword(auth, email, password);
       
-      // Update profile with name if provided
-      if (name && result.user) {
-        await updateProfile(result.user, { displayName: name });
-      }
+      // Update the user profile with display name
+      await updateProfile(user, { displayName });
       
-      return;
+      // Create user document in Firestore
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, {
+        displayName,
+        email,
+        photoURL: null,
+        bio: null,
+        joinDate: new Date(),
+        voteCount: {
+          total: 0,
+          rate: 0,
+          meh: 0,
+          hate: 0
+        },
+        lastActive: serverTimestamp()
+      });
+      
+      return { user };
     } catch (err: any) {
-      let errorMessage = 'Failed to create account';
+      console.error('Error signing up:', err);
       
       // Handle known Firebase auth error codes
       if (err.code === 'auth/email-already-in-use') {
-        errorMessage = 'Email is already in use';
+        setError('An account with this email already exists');
       } else if (err.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address format';
+        setError('Invalid email address');
       } else if (err.code === 'auth/weak-password') {
-        errorMessage = 'Password is too weak';
-      } else if (err.message) {
-        errorMessage = err.message;
+        setError('Password is too weak');
+      } else {
+        setError(err.message || 'Failed to create account');
       }
       
-      setError(errorMessage);
-      throw new Error(errorMessage);
+      throw err;
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Sign in function
   const signIn = async (email: string, password: string) => {
-    clearError();
+    if (!isClient) {
+      throw new Error("Authentication is not available on the server");
+    }
+    
     setIsLoading(true);
+    setError(null);
     
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Update last active timestamp
+      if (result.user) {
+        const userRef = doc(db, 'users', result.user.uid);
+        await updateDoc(userRef, {
+          lastActive: serverTimestamp()
+        });
+      }
+      
+      return result;
     } catch (err: any) {
-      let errorMessage = 'Failed to sign in';
+      console.error('Error signing in:', err);
       
       // Handle known Firebase auth error codes
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        errorMessage = 'Incorrect email or password';
-      } else if (err.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address format';
-      } else if (err.code === 'auth/user-disabled') {
-        errorMessage = 'This account has been disabled';
+        setError('Invalid email or password');
       } else if (err.code === 'auth/too-many-requests') {
-        errorMessage = 'Too many unsuccessful login attempts. Please try again later';
-      } else if (err.message) {
-        errorMessage = err.message;
+        setError('Too many failed login attempts. Please try again later');
+      } else if (err.code === 'auth/user-disabled') {
+        setError('This account has been disabled');
+      } else {
+        setError(err.message || 'Failed to sign in');
       }
       
-      setError(errorMessage);
-      throw new Error(errorMessage);
+      throw err;
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Log out function
   const logOut = async () => {
-    clearError();
+    if (!isClient) {
+      throw new Error("Authentication is not available on the server");
+    }
+    
+    setIsLoading(true);
     
     try {
-      await firebaseSignOut(auth);
+      await signOut(auth);
     } catch (err: any) {
-      const errorMessage = err.message || 'Failed to log out';
-      setError(errorMessage);
-      throw new Error(errorMessage);
+      console.error('Error signing out:', err);
+      setError(err.message || 'Failed to sign out');
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  // Reset password function
   const resetPassword = async (email: string) => {
-    clearError();
+    if (!isClient) {
+      throw new Error("Authentication is not available on the server");
+    }
+    
     setIsLoading(true);
+    setError(null);
     
     try {
       await sendPasswordResetEmail(auth, email);
     } catch (err: any) {
-      let errorMessage = 'Failed to send password reset email';
+      console.error('Error resetting password:', err);
       
       // Handle known Firebase auth error codes
       if (err.code === 'auth/user-not-found') {
-        errorMessage = 'No account found with this email';
+        setError('No account found with this email');
       } else if (err.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address format';
-      } else if (err.message) {
-        errorMessage = err.message;
+        setError('Invalid email address');
+      } else {
+        setError(err.message || 'Failed to reset password');
       }
       
-      setError(errorMessage);
-      throw new Error(errorMessage);
+      throw err;
     } finally {
       setIsLoading(false);
     }
   };
 
-  const updateUserProfile = async (data: { displayName?: string; photoURL?: string }) => {
-    clearError();
+  // Update user profile
+  const updateUserProfile = async (data: Partial<UserProfile>) => {
+    if (!isClient) {
+      throw new Error("Authentication is not available on the server");
+    }
+    
+    if (!user) throw new Error('No authenticated user');
+    
     setIsLoading(true);
+    setError(null);
     
     try {
-      if (!user) {
-        throw new Error('No user logged in');
+      // Only update auth profile if we're changing relevant fields
+      if (data.displayName || data.photoURL) {
+        await updateProfile(user, {
+          displayName: data.displayName,
+          photoURL: data.photoURL
+        });
       }
       
-      // Update Firebase Auth profile
-      await updateProfile(user, data);
-      
-      // Update Firestore user document
+      // Update Firestore profile
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
         ...data,
-        lastUpdated: serverTimestamp()
+        lastActive: serverTimestamp()
       });
       
       // Update local state
-      setUser({ ...user, ...data });
       if (userProfile) {
         setUserProfile({
           ...userProfile,
-          displayName: data.displayName || userProfile.displayName,
-          photoURL: data.photoURL || userProfile.photoURL
+          ...data
         });
       }
     } catch (err: any) {
-      const errorMessage = err.message || 'Failed to update profile';
-      setError(errorMessage);
-      throw new Error(errorMessage);
+      console.error('Error updating profile:', err);
+      setError(err.message || 'Failed to update profile');
+      throw err;
     } finally {
       setIsLoading(false);
     }
   };
 
-  return (
-    <AuthContext.Provider value={{
-      user,
-      userProfile,
-      isLoading,
-      error,
-      signUp,
-      signIn,
-      logOut,
-      resetPassword,
-      updateUserProfile,
-      clearError
-    }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  // Context value
+  const value = {
+    user,
+    userProfile,
+    error,
+    isLoading,
+    signIn,
+    signUp,
+    logOut,
+    resetPassword,
+    updateUserProfile
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  
-  if (context === null) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  
-  return context;
-};
+// Hook to use auth context
+export function useAuth() {
+  return useContext(AuthContext);
+}

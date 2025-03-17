@@ -1,144 +1,494 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
-import { Heart, HeartOff, Settings, User, Edit, Upload, ChevronDown } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, Meh, Settings, User, Edit, Upload, ChevronDown, Activity, BarChart2, X, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { useToast } from '@/components/ui/toast';
+import Link from 'next/link';
+import { doc, getDoc, updateDoc, collection, query, where, orderBy, limit, getDocs, startAfter } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { uploadToR2, generateSecureFilename } from '@/lib/r2';
+import { UserVote } from '@/lib/data';
 
-// Client component with all interactive logic
+// Define page size for pagination
+const VOTES_PER_PAGE = 10;
+
 export default function ProfileContent() {
-  // Mock vote history data - will be replaced with real data from your backend
-  const mockVoteHistory = [
-    { id: 1, itemName: 'Smartphone', itemId: 1, vote: 'rate', date: '2023-11-01' },
-    { id: 2, itemName: 'Biography Book', itemId: 4, vote: 'hate', date: '2023-10-28' },
-    { id: 3, itemName: 'Laptop', itemId: 2, vote: 'rate', date: '2023-10-25' },
-    { id: 4, itemName: 'Tech Giant Company', itemId: 6, vote: 'hate', date: '2023-10-20' },
-  ];
+  const { user, userProfile, updateUserProfile } = useAuth();
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // State for user data - will be replaced with auth context
-  const [user, setUser] = useState({
-    username: 'CoolUser123',
-    email: 'user@example.com',
-    profilePicture: '/profile-placeholder.png', 
-    voteCount: 15,
-    joinDate: '2023-09-15',
-    bio: 'I love rating products and sharing my opinions!',
-  });
-
-  // State for active tab
-  const [activeTab, setActiveTab] = useState('votes');
-  
-  // State for image upload
+  // States for user data
+  const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState<'votes' | 'stats' | 'settings'>('votes');
   
-  // Example: you could fetch the user's real vote history here
+  // States for vote history
+  const [voteHistory, setVoteHistory] = useState<UserVote[]>([]);
+  const [lastVoteDoc, setLastVoteDoc] = useState<any>(null);
+  const [hasMoreVotes, setHasMoreVotes] = useState(false);
+  const [isLoadingMoreVotes, setIsLoadingMoreVotes] = useState(false);
+  
+  // States for profile form
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [bio, setBio] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Initialize form data from user profile
   useEffect(() => {
-    // In a real implementation, this would fetch the user's vote history from your database
+    if (userProfile) {
+      setUsername(userProfile.displayName || '');
+      setEmail(userProfile.email || '');
+      setBio(userProfile.bio || '');
+      setIsLoading(false);
+    }
+  }, [userProfile]);
+
+  // Fetch initial vote history
+  useEffect(() => {
     const fetchVoteHistory = async () => {
-      // Fetch logic would go here
-      // This is just a mock implementation
-      console.log('Fetching vote history...');
+      if (!user) return;
+      
+      try {
+        setIsLoading(true);
+        const votesQuery = query(
+          collection(db, 'users', user.uid, 'votes'),
+          orderBy('timestamp', 'desc'),
+          limit(VOTES_PER_PAGE)
+        );
+        
+        const votesSnapshot = await getDocs(votesQuery);
+        
+        // Get the last document for pagination
+        const lastVisible = votesSnapshot.docs[votesSnapshot.docs.length - 1];
+        setLastVoteDoc(lastVisible);
+        
+        // Check if there are more votes to load
+        setHasMoreVotes(votesSnapshot.docs.length === VOTES_PER_PAGE);
+        
+        // Map the votes to our data structure
+        const votes = await Promise.all(votesSnapshot.docs.map(async (doc) => {
+          const data = doc.data();
+          
+          // Get item details
+          let itemName = data.itemName || 'Unknown Item';
+          let category = data.category || 'Unknown';
+          
+          // If itemName is not in the vote document, try to fetch it
+          if (!data.itemName) {
+            try {
+              const itemDoc = await getDoc(doc(db, 'items', data.itemId));
+              if (itemDoc.exists()) {
+                const itemData = itemDoc.data();
+                itemName = itemData.name || 'Unknown Item';
+                category = itemData.category || 'Unknown';
+              }
+            } catch (err) {
+              console.error('Error fetching item details:', err);
+            }
+          }
+          
+          return {
+            itemId: data.itemId,
+            itemName,
+            vote: data.voteType,
+            timestamp: data.timestamp?.toDate() || new Date(),
+            category
+          };
+        }));
+        
+        setVoteHistory(votes);
+        setIsLoading(false);
+      } catch (err) {
+        console.error('Error fetching vote history:', err);
+        setError('Failed to load vote history. Please try again later.');
+        setIsLoading(false);
+      }
     };
     
     fetchVoteHistory();
-  }, []);
-  
-  // Handler for profile image upload
-  const handleImageUpload = () => {
-    // Simulate upload process
-    setIsUploading(true);
-    setTimeout(() => {
-      setIsUploading(false);
-      // Would update user profile picture with the uploaded image URL from your storage
-      setUser({...user, profilePicture: '/profile-placeholder.png'});
-    }, 1500);
+  }, [user]);
+
+  // Load more votes handler
+  const loadMoreVotes = async () => {
+    if (!user || !lastVoteDoc || isLoadingMoreVotes) return;
+    
+    try {
+      setIsLoadingMoreVotes(true);
+      
+      const votesQuery = query(
+        collection(db, 'users', user.uid, 'votes'),
+        orderBy('timestamp', 'desc'),
+        startAfter(lastVoteDoc),
+        limit(VOTES_PER_PAGE)
+      );
+      
+      const votesSnapshot = await getDocs(votesQuery);
+      
+      // Get the last document for pagination
+      const lastVisible = votesSnapshot.docs[votesSnapshot.docs.length - 1];
+      setLastVoteDoc(lastVisible);
+      
+      // Check if there are more votes to load
+      setHasMoreVotes(votesSnapshot.docs.length === VOTES_PER_PAGE);
+      
+      // Map the votes to our data structure
+      const newVotes = await Promise.all(votesSnapshot.docs.map(async (doc) => {
+        const data = doc.data();
+        
+        // Get item details
+        let itemName = data.itemName || 'Unknown Item';
+        let category = data.category || 'Unknown';
+        
+        // If itemName is not in the vote document, try to fetch it
+        if (!data.itemName) {
+          try {
+            const itemDoc = await getDoc(doc(db, 'items', data.itemId));
+            if (itemDoc.exists()) {
+              const itemData = itemDoc.data();
+              itemName = itemData.name || 'Unknown Item';
+              category = itemData.category || 'Unknown';
+            }
+          } catch (err) {
+            console.error('Error fetching item details:', err);
+          }
+        }
+        
+        return {
+          itemId: data.itemId,
+          itemName,
+          vote: data.voteType,
+          timestamp: data.timestamp?.toDate() || new Date(),
+          category
+        };
+      }));
+      
+      setVoteHistory(prev => [...prev, ...newVotes]);
+      setIsLoadingMoreVotes(false);
+    } catch (err) {
+      console.error('Error loading more votes:', err);
+      toast({
+        title: "Error",
+        description: "Failed to load more votes. Please try again.",
+        type: "error"
+      });
+      setIsLoadingMoreVotes(false);
+    }
   };
 
+  // Handle profile image selection
+  const handleImageSelect = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  // Handle profile image upload
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    
+    try {
+      // Validate file
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: "Invalid file type",
+          description: "Please select an image file.",
+          type: "error"
+        });
+        return;
+      }
+      
+      // Check file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: "Image must be less than 5MB.",
+          type: "error"
+        });
+        return;
+      }
+      
+      setIsUploading(true);
+      
+      // Generate a secure filename
+      const filename = generateSecureFilename(file.name, `users/${user.uid}/profile/`);
+      
+      // Upload to R2
+      const imageUrl = await uploadToR2(file, filename);
+      
+      // Update user profile
+      await updateUserProfile({ photoURL: imageUrl });
+      
+      toast({
+        title: "Success",
+        description: "Profile picture updated successfully",
+        type: "success"
+      });
+    } catch (err) {
+      console.error('Error uploading image:', err);
+      toast({
+        title: "Upload failed",
+        description: "Could not upload profile picture. Please try again.",
+        type: "error"
+      });
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Handle profile update
+  const handleProfileUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!user) return;
+    
+    try {
+      setIsSaving(true);
+      
+      await updateUserProfile({
+        displayName: username,
+        bio
+      });
+      
+      toast({
+        title: "Profile updated",
+        description: "Your profile has been updated successfully",
+        type: "success"
+      });
+    } catch (err) {
+      console.error('Error updating profile:', err);
+      toast({
+        title: "Update failed",
+        description: "Could not update profile. Please try again.",
+        type: "error"
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Format date for display
+  const formatDate = (date: Date) => {
+    return new Date(date).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  // Get color for vote type
+  const getVoteColor = (voteType: string) => {
+    switch (voteType) {
+      case 'rate': return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400';
+      case 'meh': return 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/40 dark:text-yellow-400';
+      case 'hate': return 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400';
+      default: return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400';
+    }
+  };
+
+  // Get icon for vote type
+  const getVoteIcon = (voteType: string) => {
+    switch (voteType) {
+      case 'rate': return <ThumbsUp size={18} className="text-blue-500 dark:text-blue-400" />;
+      case 'meh': return <Meh size={18} className="text-yellow-500 dark:text-yellow-400" />;
+      case 'hate': return <ThumbsDown size={18} className="text-red-500 dark:text-red-400" />;
+      default: return null;
+    }
+  };
+
+  // If user is not logged in, show a login prompt
+  if (!user && !isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-10">
+        <div className="container mx-auto px-4 max-w-md">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center">
+            <User className="h-12 w-12 mx-auto text-gray-400 dark:text-gray-500 mb-4" />
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Sign in required</h1>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">You need to be logged in to view your profile.</p>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <Link 
+                href="/login?redirectTo=/profile"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 px-4 rounded-lg font-medium text-center transition-colors"
+              >
+                Sign In
+              </Link>
+              <Link 
+                href="/register?redirectTo=/profile"
+                className="w-full bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 py-2.5 px-4 rounded-lg font-medium text-center transition-colors"
+              >
+                Create Account
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // If loading, show a loading spinner
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="flex flex-col items-center">
+          <Loader2 className="h-10 w-10 text-blue-500 animate-spin mb-4" />
+          <p className="text-gray-600 dark:text-gray-400">Loading profile...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 py-10">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-10">
       <div className="container mx-auto px-4 max-w-4xl">
+        {/* Error display */}
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 p-4 mb-6 rounded-r-lg">
+            <div className="flex items-center">
+              <AlertCircle className="h-5 w-5 text-red-500 dark:text-red-400 mr-2 flex-shrink-0" />
+              <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+            </div>
+          </div>
+        )}
+        
         {/* Profile Header */}
-        <div className="bg-white rounded-lg shadow-md overflow-hidden mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden mb-6 border border-gray-200 dark:border-gray-700">
           <div className="bg-gradient-to-r from-blue-500 to-purple-600 h-32 relative">
-            {/* Edit cover photo button - would be implemented with your storage solution */}
-            <button className="absolute right-4 bottom-4 bg-white bg-opacity-80 rounded-full p-2 hover:bg-opacity-100 transition-all">
-              <Edit size={16} />
+            {/* Edit cover photo button - we're not implementing this in this version */}
+            <button 
+              className="absolute right-4 bottom-4 bg-white dark:bg-gray-800 bg-opacity-80 rounded-full p-2 hover:bg-opacity-100 transition-all"
+              aria-label="Edit cover"
+            >
+              <Edit size={16} className="text-gray-700 dark:text-gray-300" />
             </button>
           </div>
           
           <div className="px-6 pb-6 relative">
             {/* Profile picture with upload functionality */}
             <div className="relative -mt-16 mb-4 inline-block">
-              <div className="h-32 w-32 rounded-full border-4 border-white overflow-hidden bg-gray-200 relative">
-                <Image
-                  src={user.profilePicture}
-                  alt="Profile Picture"
-                  fill
-                  sizes="128px"
-                  className="object-cover"
-                />
+              <div className="h-32 w-32 rounded-full border-4 border-white dark:border-gray-800 overflow-hidden bg-gray-200 dark:bg-gray-700 relative">
+                {userProfile?.photoURL ? (
+                  <Image
+                    src={userProfile.photoURL}
+                    alt="Profile Picture"
+                    fill
+                    sizes="128px"
+                    className="object-cover"
+                    onError={(e) => {
+                      // Fallback for broken images
+                      const target = e.target as HTMLImageElement;
+                      target.src = '/profile-placeholder.png';
+                    }}
+                  />
+                ) : (
+                  <div className="h-full w-full flex items-center justify-center bg-blue-100 dark:bg-blue-900 text-blue-500 dark:text-blue-400">
+                    <User size={48} />
+                  </div>
+                )}
                 {isUploading && (
                   <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-                    <div className="w-8 h-8 border-4 border-t-blue-500 border-white border-opacity-30 rounded-full animate-spin"></div>
+                    <Loader2 className="h-8 w-8 text-white animate-spin" />
                   </div>
                 )}
               </div>
               <button 
-                onClick={handleImageUpload}
+                onClick={handleImageSelect}
                 className="absolute bottom-0 right-0 bg-blue-500 hover:bg-blue-600 text-white rounded-full p-2 shadow-md transition-colors"
+                aria-label="Upload profile picture"
               >
                 <Upload size={16} />
               </button>
+              
+              {/* Hidden file input */}
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleImageUpload} 
+                className="hidden" 
+                accept="image/*"
+              />
             </div>
             
             <div className="flex flex-col md:flex-row md:items-center justify-between">
               <div>
-                <h1 className="text-2xl font-bold">{user.username}</h1>
-                <p className="text-gray-600">{user.email}</p>
-                <p className="text-gray-500 text-sm">Member since {user.joinDate}</p>
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{userProfile?.displayName || 'User'}</h1>
+                <p className="text-gray-600 dark:text-gray-400">{userProfile?.email}</p>
+                <p className="text-gray-500 dark:text-gray-500 text-sm">
+                  Member since {userProfile?.joinDate ? new Date(userProfile.joinDate).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  }) : 'Unknown'}
+                </p>
               </div>
               
-              <div className="mt-4 md:mt-0 flex items-center space-x-2">
-                <div className="bg-gray-100 rounded-lg px-3 py-1 text-sm flex items-center">
-                  <span className="text-gray-700 font-medium">{user.voteCount}</span>
-                  <span className="ml-1 text-gray-500">votes</span>
+              <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-2">
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-2 py-1 text-sm flex items-center">
+                  <ThumbsUp size={14} className="text-blue-500 dark:text-blue-400 mr-1" />
+                  <span className="text-blue-600 dark:text-blue-400 font-medium">{userProfile?.voteCount?.rate || 0}</span>
                 </div>
-                <button className="bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-1 text-sm flex items-center transition-colors">
-                  <Settings size={14} className="mr-1" />
-                  <span>Settings</span>
-                </button>
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg px-2 py-1 text-sm flex items-center">
+                  <Meh size={14} className="text-yellow-500 dark:text-yellow-400 mr-1" />
+                  <span className="text-yellow-600 dark:text-yellow-400 font-medium">{userProfile?.voteCount?.meh || 0}</span>
+                </div>
+                <div className="bg-red-50 dark:bg-red-900/20 rounded-lg px-2 py-1 text-sm flex items-center">
+                  <ThumbsDown size={14} className="text-red-500 dark:text-red-400 mr-1" />
+                  <span className="text-red-600 dark:text-red-400 font-medium">{userProfile?.voteCount?.hate || 0}</span>
+                </div>
+                <div className="bg-gray-100 dark:bg-gray-700 rounded-lg px-3 py-1 text-sm flex items-center">
+                  <span className="text-gray-700 dark:text-gray-300 font-medium">{userProfile?.voteCount?.total || 0}</span>
+                  <span className="ml-1 text-gray-500 dark:text-gray-400">total</span>
+                </div>
               </div>
             </div>
             
-            {user.bio && (
-              <p className="mt-4 text-gray-700">{user.bio}</p>
+            {userProfile?.bio && (
+              <p className="mt-4 text-gray-700 dark:text-gray-300">{userProfile.bio}</p>
             )}
           </div>
         </div>
         
         {/* Tab Navigation */}
-        <div className="bg-white rounded-lg shadow-md overflow-hidden mb-6">
-          <div className="flex border-b">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden mb-6 border border-gray-200 dark:border-gray-700">
+          <div className="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
             <button
               onClick={() => setActiveTab('votes')}
-              className={`px-4 py-3 font-medium flex items-center ${
+              className={`px-4 py-3 font-medium flex items-center whitespace-nowrap ${
                 activeTab === 'votes' 
-                  ? 'text-blue-600 border-b-2 border-blue-500' 
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400' 
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
               }`}
             >
-              <Heart size={16} className={`mr-2 ${activeTab === 'votes' ? 'text-blue-500' : 'text-gray-400'}`} />
-              Your Votes
+              <Activity size={16} className={`mr-2 ${activeTab === 'votes' ? 'text-blue-500 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`} />
+              Vote History
+            </button>
+            <button
+              onClick={() => setActiveTab('stats')}
+              className={`px-4 py-3 font-medium flex items-center whitespace-nowrap ${
+                activeTab === 'stats' 
+                  ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400' 
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+              }`}
+            >
+              <BarChart2 size={16} className={`mr-2 ${activeTab === 'stats' ? 'text-blue-500 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`} />
+              MEHtrics
             </button>
             <button
               onClick={() => setActiveTab('settings')}
-              className={`px-4 py-3 font-medium flex items-center ${
+              className={`px-4 py-3 font-medium flex items-center whitespace-nowrap ${
                 activeTab === 'settings' 
-                  ? 'text-blue-600 border-b-2 border-blue-500' 
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400' 
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
               }`}
             >
-              <User size={16} className={`mr-2 ${activeTab === 'settings' ? 'text-blue-500' : 'text-gray-400'}`} />
+              <User size={16} className={`mr-2 ${activeTab === 'settings' ? 'text-blue-500 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`} />
               Account Settings
             </button>
           </div>
@@ -147,106 +497,251 @@ export default function ProfileContent() {
           <div className="p-6">
             {activeTab === 'votes' && (
               <div>
-                <h2 className="text-xl font-bold mb-4">Your Vote History</h2>
-                {mockVoteHistory.length > 0 ? (
-                  <div className="divide-y">
-                    {mockVoteHistory.map(vote => (
-                      <div key={vote.id} className="py-3 flex items-center justify-between">
+                <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Your Vote History</h2>
+                {voteHistory.length > 0 ? (
+                  <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {voteHistory.map((vote, index) => (
+                      <div key={`${vote.itemId}-${index}`} className="py-3 flex items-center justify-between">
                         <div className="flex items-center">
-                          {vote.vote === 'rate' ? (
-                            <Heart size={18} className="text-red-500 mr-3" />
-                          ) : (
-                            <HeartOff size={18} className="text-gray-500 mr-3" />
-                          )}
+                          <div className="mr-3">
+                            {getVoteIcon(vote.vote)}
+                          </div>
                           <div>
-                            <a href={`/item/${vote.itemId}`} className="font-medium hover:text-blue-600">
+                            <Link href={`/item/${vote.itemId}`} className="font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400">
                               {vote.itemName}
-                            </a>
-                            <p className="text-xs text-gray-500">{vote.date}</p>
+                            </Link>
+                            <div className="flex text-xs text-gray-500 dark:text-gray-400 space-x-2">
+                              <span>{formatDate(vote.timestamp)}</span>
+                              {vote.category && (
+                                <>
+                                  <span>•</span>
+                                  <Link href={`/category/${vote.category.toLowerCase()}`} className="hover:text-blue-500 dark:hover:text-blue-400">
+                                    {vote.category}
+                                  </Link>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          vote.vote === 'rate' 
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {vote.vote === 'rate' ? 'Rate It' : 'Hate It'}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getVoteColor(vote.vote)}`}>
+                          {vote.vote === 'rate' ? 'Rate It' : vote.vote === 'meh' ? 'Meh' : 'Hate It'}
                         </span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-8">
-                    <p className="text-gray-500">You haven't voted on anything yet.</p>
-                    <a href="/" className="mt-2 inline-block text-blue-500 hover:underline">
-                      Discover items to rate
-                    </a>
+                  <div className="text-center py-10 px-6">
+                    <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-6">
+                      <Activity className="h-10 w-10 text-gray-400 mx-auto mb-3" />
+                      <p className="text-gray-500 dark:text-gray-400">You haven't voted on anything yet.</p>
+                      <Link href="/category/all" className="mt-3 inline-block text-blue-500 dark:text-blue-400 hover:underline">
+                        Discover items to rate
+                      </Link>
+                    </div>
                   </div>
                 )}
                 
-                {mockVoteHistory.length > 0 && (
-                  <div className="mt-4 text-center">
-                    <button className="text-blue-500 hover:text-blue-700 flex items-center mx-auto">
-                      <span>View more</span>
-                      <ChevronDown size={16} className="ml-1" />
+                {/* Load more votes button */}
+                {hasMoreVotes && voteHistory.length > 0 && (
+                  <div className="mt-6 text-center">
+                    <button 
+                      onClick={loadMoreVotes}
+                      disabled={isLoadingMoreVotes}
+                      className="text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLoadingMoreVotes ? (
+                        <>
+                          <Loader2 size={16} className="mr-2 animate-spin" />
+                          <span>Loading more...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>View more votes</span>
+                          <ChevronDown size={16} className="ml-1" />
+                        </>
+                      )}
                     </button>
                   </div>
                 )}
               </div>
             )}
             
+            {activeTab === 'stats' && (
+              <div>
+                <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Your MEHtrics</h2>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-100 dark:border-blue-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-medium text-blue-700 dark:text-blue-300">Rate It</h3>
+                      <span className="text-xl font-bold text-blue-600 dark:text-blue-400">{userProfile?.voteCount?.rate || 0}</span>
+                    </div>
+                    <div className="text-xs text-blue-600 dark:text-blue-400">
+                      {userProfile?.voteCount?.total ? Math.round((userProfile.voteCount.rate / userProfile.voteCount.total) * 100) : 0}% of your votes
+                    </div>
+                  </div>
+                  
+                  <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 border border-yellow-100 dark:border-yellow-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Meh</h3>
+                      <span className="text-xl font-bold text-yellow-600 dark:text-yellow-400">{userProfile?.voteCount?.meh || 0}</span>
+                    </div>
+                    <div className="text-xs text-yellow-600 dark:text-yellow-400">
+                      {userProfile?.voteCount?.total ? Math.round((userProfile.voteCount.meh / userProfile.voteCount.total) * 100) : 0}% of your votes
+                    </div>
+                  </div>
+                  
+                  <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 border border-red-100 dark:border-red-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-medium text-red-700 dark:text-red-300">Hate It</h3>
+                      <span className="text-xl font-bold text-red-600 dark:text-red-400">{userProfile?.voteCount?.hate || 0}</span>
+                    </div>
+                    <div className="text-xs text-red-600 dark:text-red-400">
+                      {userProfile?.voteCount?.total ? Math.round((userProfile.voteCount.hate / userProfile.voteCount.total) * 100) : 0}% of your votes
+                    </div>
+                  </div>
+                </div>
+                
+                {userProfile?.voteCount?.total ? (
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-4">
+                    <h3 className="text-gray-700 dark:text-gray-300 font-medium mb-3">Vote Distribution</h3>
+                    <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div className="flex h-full">
+                        <div 
+                          className="bg-blue-500 h-full" 
+                          style={{ width: `${userProfile.voteCount.total ? (userProfile.voteCount.rate / userProfile.voteCount.total) * 100 : 0}%` }}
+                        ></div>
+                        <div 
+                          className="bg-yellow-500 h-full" 
+                          style={{ width: `${userProfile.voteCount.total ? (userProfile.voteCount.meh / userProfile.voteCount.total) * 100 : 0}%` }}
+                        ></div>
+                        <div 
+                          className="bg-red-500 h-full" 
+                          style={{ width: `${userProfile.voteCount.total ? (userProfile.voteCount.hate / userProfile.voteCount.total) * 100 : 0}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                    <div className="flex justify-between mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 bg-blue-500 rounded-sm mr-1"></div>
+                        <span>Rate It</span>
+                      </div>
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 bg-yellow-500 rounded-sm mr-1"></div>
+                        <span>Meh</span>
+                      </div>
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 bg-red-500 rounded-sm mr-1"></div>
+                        <span>Hate It</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 text-sm text-gray-600 dark:text-gray-400">
+                  <p>Your MEHtrics show how you tend to vote across different items. This helps us understand your preferences and improve recommendations.</p>
+                  
+                  {!userProfile?.voteCount?.total && (
+                    <div className="mt-3 flex items-center text-blue-600 dark:text-blue-400">
+                      <Link href="/category/all" className="flex items-center text-blue-500 dark:text-blue-400 hover:underline">
+                        <ThumbsUp size={14} className="mr-1.5" />
+                        Start rating items to build your MEHtrics
+                      </Link>
+                    </div>
+                  )}
+                </div>
+                
+                {/* More stats could be added here in the future */}
+              </div>
+            )}
+            
             {activeTab === 'settings' && (
               <div>
-                <h2 className="text-xl font-bold mb-4">Account Settings</h2>
-                <form className="space-y-4">
+                <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Account Settings</h2>
+                <form className="space-y-4" onSubmit={handleProfileUpdate}>
                   <div>
-                    <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Username
                     </label>
                     <input
                       type="text"
                       id="username"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      value={user.username}
-                      onChange={(e) => setUser({...user, username: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
                     />
                   </div>
                   
                   <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Email
                     </label>
                     <input
                       type="email"
                       id="email"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      value={user.email}
-                      onChange={(e) => setUser({...user, email: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 bg-gray-100 dark:bg-gray-600"
+                      value={email}
+                      readOnly
+                      disabled
                     />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Email cannot be changed. Contact support if you need to update your email.
+                    </p>
                   </div>
                   
                   <div>
-                    <label htmlFor="bio" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="bio" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Bio
                     </label>
                     <textarea
                       id="bio"
                       rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      value={user.bio}
-                      onChange={(e) => setUser({...user, bio: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      value={bio}
+                      onChange={(e) => setBio(e.target.value)}
+                      maxLength={200}
                     />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {bio.length}/200 characters
+                    </p>
                   </div>
                   
                   <div className="pt-2">
                     <button
-                      type="button"
-                      className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                      type="submit"
+                      disabled={isSaving}
+                      className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
                     >
-                      Save Changes
+                      {isSaving ? (
+                        <span className="flex items-center">
+                          <Loader2 className="animate-spin h-4 w-4 mr-2" />
+                          Saving...
+                        </span>
+                      ) : (
+                        'Save Changes'
+                      )}
                     </button>
                   </div>
                 </form>
+                
+                <div className="mt-8">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Account Security</h3>
+                  <div className="space-y-3">
+                    <Link 
+                      href="/reset-password"
+                      className="block px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md text-gray-800 dark:text-gray-200 transition-colors"
+                    >
+                      Change Password
+                    </Link>
+                    
+                    <Link 
+                      href="/delete-account"
+                      className="block px-4 py-2 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-md text-red-600 dark:text-red-400 transition-colors"
+                    >
+                      Delete Account
+                    </Link>
+                  </div>
+                </div>
               </div>
             )}
           </div>

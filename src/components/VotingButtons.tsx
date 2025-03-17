@@ -1,16 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Heart, HeartOff, AlertCircle, Info, Check } from 'lucide-react';
-import { useAuth } from '@/lib/auth';
-import { db } from '@/lib/firebase';
-import { doc, getDoc, setDoc, updateDoc, increment, serverTimestamp } from 'firebase/firestore';
-import { generateFingerprint } from '@/utils/deviceFingerprint';
+import { useState, useEffect } from 'react';
+import { Heart, HeartOff, Meh, AlertCircle, Info, Check } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useVoteManager } from '@/lib/voteManager';
 
 type VotingButtonsProps = {
   itemId: string;
   initialRateCount?: number;
+  initialMehCount?: number;
   initialHateCount?: number;
   className?: string;
   size?: 'sm' | 'md' | 'lg';
@@ -18,13 +16,14 @@ type VotingButtonsProps = {
   showPercentage?: boolean;
   showCounts?: boolean;
   animated?: boolean;
-  onVoteSuccess?: (type: 'rate' | 'hate') => void;
+  onVoteSuccess?: (type: 'rate' | 'meh' | 'hate') => void;
   onVoteError?: (error: string) => void;
 };
 
 export default function VotingButtons({
   itemId,
   initialRateCount = 0,
+  initialMehCount = 0,
   initialHateCount = 0,
   className = '',
   size = 'md',
@@ -35,17 +34,20 @@ export default function VotingButtons({
   onVoteSuccess,
   onVoteError
 }: VotingButtonsProps) {
-  const { user } = useAuth();
-  const [deviceId, setDeviceId] = useState<string | null>(null);
+  // Local UI state
   const [rateCount, setRateCount] = useState(initialRateCount);
+  const [mehCount, setMehCount] = useState(initialMehCount);
   const [hateCount, setHateCount] = useState(initialHateCount);
-  const [userVote, setUserVote] = useState<'rate' | 'hate' | null>(null);
+  const [userVote, setUserVote] = useState<'rate' | 'meh' | 'hate' | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
-  // Button size classes based on size prop
+  // Import voteManager functions and state
+  const { recordVote, getVoteStats } = useVoteManager();
+
+  // Button size classes
   const buttonSizeClasses = {
     sm: 'px-3 py-1.5 text-sm',
     md: 'px-4 py-2 text-base',
@@ -58,199 +60,53 @@ export default function VotingButtons({
     lg: 'h-6 w-6 mr-2'
   };
 
-  // Check for previous votes - moved to a useCallback to resolve dependency issues
-  const checkPreviousVote = useCallback(async (deviceFingerprint: string) => {
-    try {
-      if (user) {
-        // Check authenticated user's vote
-        const voteRef = doc(db, 'users', user.uid, 'votes', itemId);
-        const voteDoc = await getDoc(voteRef);
-        
-        if (voteDoc.exists()) {
-          setUserVote(voteDoc.data().voteType);
-        }
-      } else if (deviceFingerprint) {
-        // Check anonymous vote
-        const anonVoteRef = doc(db, 'anonymousVotes', `${deviceFingerprint}_${itemId}`);
-        const anonVoteDoc = await getDoc(anonVoteRef);
-        
-        if (anonVoteDoc.exists()) {
-          setUserVote(anonVoteDoc.data().voteType);
-        }
-      }
-    } catch (err) {
-      console.error("Error checking previous vote:", err);
-    }
-  }, [user, itemId]);
-
-  // Generate device fingerprint on component mount
+  // Fetch latest vote stats when component mounts or itemId changes
   useEffect(() => {
-    const getDeviceId = async () => {
-      if (!deviceId) {
-        try {
-          const fingerprint = await generateFingerprint();
-          setDeviceId(fingerprint);
-          
-          // Check if user has already voted on this item
-          await checkPreviousVote(fingerprint);
-        } catch (err) {
-          console.error("Error generating device fingerprint:", err);
-        }
-      }
-    };
-    
-    getDeviceId();
-  }, [deviceId, checkPreviousVote]);
+    async function fetchStats() {
+      const stats = await getVoteStats(itemId);
+      setRateCount(stats.rateCount);
+      setMehCount(stats.mehCount);
+      setHateCount(stats.hateCount);
+      setUserVote(stats.userVote);
+    }
+    fetchStats();
+  }, [itemId, getVoteStats]);
 
-  // Handle vote click
-  const handleVote = async (voteType: 'rate' | 'hate') => {
-    // Reset states
+  // Handle vote click using recordVote from voteManager
+  const handleVote = async (voteType: 'rate' | 'meh' | 'hate') => {
+    // Reset messages
     setError(null);
     setShowSuccess(false);
     setShowLoginPrompt(false);
-    
-    // Prevent voting again on same option or while submitting
+
+    // Prevent duplicate voting or if already submitting
     if (userVote === voteType || isSubmitting) return;
-    
-    // If not logged in, show anonymous vote disclaimer after a certain number of votes
-    if (!user && totalVotes > 10 && Math.random() > 0.7) {
-      setShowLoginPrompt(true);
-      setTimeout(() => setShowLoginPrompt(false), 5000);
-    }
-    
-    // Ensure we have a device ID for anonymous voting
-    if (!user && !deviceId) {
-      setError("Unable to process your vote. Please try again.");
-      if (onVoteError) onVoteError("Unable to process your vote. Please try again.");
-      return;
-    }
-    
+
     setIsSubmitting(true);
-    
-    try {
-      // Determine if this is a new vote or changing an existing vote
-      const isChangingVote = userVote !== null;
-      
-      // Calculate new vote counts
-      let newRateCount = rateCount;
-      let newHateCount = hateCount;
-      
-      if (isChangingVote) {
-        // Remove previous vote
-        if (userVote === 'rate') {
-          newRateCount -= 1;
-        } else {
-          newHateCount -= 1;
-        }
-      }
-      
-      // Add new vote
-      if (voteType === 'rate') {
-        newRateCount += 1;
-      } else {
-        newHateCount += 1;
-      }
-      
-      // Update local state immediately for a responsive UI
-      setRateCount(newRateCount);
-      setHateCount(newHateCount);
+
+    const result = await recordVote(itemId, voteType);
+    if (result.success) {
+      // Update local state with new counts from voteManager response
+      if (result.newRateCount !== undefined) setRateCount(result.newRateCount);
+      if (result.newMehCount !== undefined) setMehCount(result.newMehCount);
+      if (result.newHateCount !== undefined) setHateCount(result.newHateCount);
       setUserVote(voteType);
-      
-      // Record vote in Firestore
-      const itemRef = doc(db, 'items', itemId);
-      const itemDoc = await getDoc(itemRef);
-      
-      // Item batch update
-      if (itemDoc.exists()) {
-        // Item exists, update it
-        await updateDoc(itemRef, {
-          [`${voteType}Count`]: increment(1),
-          ...(isChangingVote ? { [`${userVote}Count`]: increment(-1) } : {}),
-          totalVotes: isChangingVote ? increment(0) : increment(1),
-          lastUpdated: serverTimestamp()
-        });
-      } else {
-        // Item doesn't exist, create it
-        await setDoc(itemRef, {
-          id: itemId,
-          rateCount: voteType === 'rate' ? 1 : 0,
-          hateCount: voteType === 'hate' ? 1 : 0,
-          totalVotes: 1,
-          created: serverTimestamp(),
-          lastUpdated: serverTimestamp()
-        });
-      }
-      
-      // Record user's vote based on authentication state
-      if (user) {
-        // Authenticated vote
-        const voteRef = doc(db, 'users', user.uid, 'votes', itemId);
-        await setDoc(voteRef, {
-          itemId,
-          voteType,
-          timestamp: serverTimestamp(),
-          previousVote: isChangingVote ? userVote : null
-        });
-        
-        // Update user's vote count
-        const userRef = doc(db, 'users', user.uid);
-        if (!isChangingVote) {
-          await updateDoc(userRef, {
-            voteCount: increment(1)
-          });
-        }
-      } else if (deviceId) {
-        // Anonymous vote
-        const anonVoteRef = doc(db, 'anonymousVotes', `${deviceId}_${itemId}`);
-        await setDoc(anonVoteRef, {
-          deviceId,
-          itemId,
-          voteType,
-          timestamp: serverTimestamp(),
-          previousVote: isChangingVote ? userVote : null
-        });
-      }
-      
-      // Show success message
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 2000);
-      
-      // Trigger callback if provided
-      if (onVoteSuccess) {
-        onVoteSuccess(voteType);
-      }
-      
-    } catch (err) {
-      console.error("Error submitting vote:", err);
-      const errorMessage = "Failed to record your vote. Please try again.";
-      setError(errorMessage);
-      
-      if (onVoteError) onVoteError(errorMessage);
-      
-      // Revert UI state on error
-      if (userVote) {
-        // If changing vote, revert to previous state
-        setRateCount(initialRateCount);
-        setHateCount(initialHateCount);
-        setUserVote(userVote);
-      } else {
-        // If new vote, remove the vote
-        if (voteType === 'rate') {
-          setRateCount(prev => prev - 1);
-        } else {
-          setHateCount(prev => prev - 1);
-        }
-        setUserVote(null);
-      }
-    } finally {
-      setIsSubmitting(false);
+      if (onVoteSuccess) onVoteSuccess(voteType);
+    } else {
+      setError(result.error || 'Failed to record your vote. Please try again.');
+      if (onVoteError) onVoteError(result.error || 'Failed to record your vote. Please try again.');
     }
+
+    setIsSubmitting(false);
   };
-  
-  // Calculate percentages
-  const totalVotes = rateCount + hateCount;
-  const ratePercentage = totalVotes > 0 ? Math.round((rateCount / totalVotes) * 100) : 50;
-  const hatePercentage = 100 - ratePercentage;
+
+  // Calculate total votes and percentages
+  const totalVotes = rateCount + mehCount + hateCount;
+  const ratePercentage = totalVotes > 0 ? Math.round((rateCount / totalVotes) * 100) : 33;
+  const mehPercentage = totalVotes > 0 ? Math.round((mehCount / totalVotes) * 100) : 33;
+  const hatePercentage = totalVotes > 0 ? Math.round((hateCount / totalVotes) * 100) : 34;
 
   return (
     <div className={`flex flex-col ${className}`}>
@@ -278,12 +134,45 @@ export default function VotingButtons({
                 ? 'text-green-600 dark:text-green-400 fill-green-600 dark:fill-green-400' 
                 : 'text-gray-500 dark:text-gray-400'
               }
-            `} 
+            `}
           />
           <span>Rate It</span>
           {showCounts && (
             <span className="ml-2 bg-white dark:bg-gray-700 dark:text-gray-200 bg-opacity-70 px-1.5 py-0.5 rounded-full text-sm">
               {rateCount > 999 ? `${(rateCount/1000).toFixed(1)}k` : rateCount}
+            </span>
+          )}
+        </motion.button>
+
+        {/* Meh Button */}
+        <motion.button
+          onClick={() => handleVote('meh')}
+          disabled={isSubmitting}
+          whileTap={animated ? { scale: 0.95 } : {}}
+          className={`
+            flex items-center justify-center rounded-full font-medium transition-all
+            ${buttonSizeClasses[size]}
+            ${userVote === 'meh' 
+              ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-800' 
+              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-yellow-600 dark:hover:text-yellow-400'
+            }
+            ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}
+          `}
+          type="button"
+        >
+          <Meh 
+            className={`
+              ${iconSizeClasses[size]}
+              ${userVote === 'meh' 
+                ? 'text-yellow-600 dark:text-yellow-400' 
+                : 'text-gray-500 dark:text-gray-400'
+              }
+            `}
+          />
+          <span>Meh</span>
+          {showCounts && (
+            <span className="ml-2 bg-white dark:bg-gray-700 dark:text-gray-200 bg-opacity-70 px-1.5 py-0.5 rounded-full text-sm">
+              {mehCount > 999 ? `${(mehCount/1000).toFixed(1)}k` : mehCount}
             </span>
           )}
         </motion.button>
@@ -311,7 +200,7 @@ export default function VotingButtons({
                 ? 'text-red-600 dark:text-red-400' 
                 : 'text-gray-500 dark:text-gray-400'
               }
-            `} 
+            `}
           />
           <span>Hate It</span>
           {showCounts && (
@@ -335,6 +224,20 @@ export default function VotingButtons({
                 className="h-2 bg-green-500 rounded-full"
                 initial={{ width: `0%` }}
                 animate={{ width: `${ratePercentage}%` }}
+                transition={{ duration: animated ? 0.5 : 0 }}
+              ></motion.div>
+            </div>
+          </div>
+          <div>
+            <div className="flex justify-between mb-1 text-xs text-gray-500 dark:text-gray-400">
+              <span>Meh</span>
+              <span>{mehPercentage}%</span>
+            </div>
+            <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <motion.div 
+                className="h-2 bg-yellow-500 rounded-full"
+                initial={{ width: `0%` }}
+                animate={{ width: `${mehPercentage}%` }}
                 transition={{ duration: animated ? 0.5 : 0 }}
               ></motion.div>
             </div>

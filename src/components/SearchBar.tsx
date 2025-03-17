@@ -1,37 +1,28 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Search, X, ArrowRight } from 'lucide-react';
+import { Search, X, ArrowRight, Loader2 } from 'lucide-react';
+import Image from 'next/image';
+import { collection, query, where, orderBy, limit, getDocs, startAt, endAt } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { useDebounce } from '@/utils/hooks';
 
-type SearchResult = {
+export type SearchResult = {
   id: string;
   name: string;
   category: string;
-  imageUrl?: string;
+  imageUrl?: string | null;
 };
 
-// Mock search results for demo purposes
-// In production, this would be replaced with an API call
-const mockSearchResults: SearchResult[] = [
-  { id: '1', name: 'iPhone 14 Pro', category: 'electronics', imageUrl: '/images/iphone.jpg' },
-  { id: '2', name: 'Samsung Galaxy S22', category: 'electronics', imageUrl: '/images/samsung.jpg' },
-  { id: '3', name: 'The Great Gatsby', category: 'books', imageUrl: '/images/gatsby.jpg' },
-  { id: '4', name: 'Apple Inc.', category: 'companies', imageUrl: '/images/apple.jpg' },
-  { id: '5', name: 'Tesla Model 3', category: 'cars', imageUrl: '/images/tesla.jpg' },
-  { id: '6', name: 'Netflix', category: 'companies', imageUrl: '/images/netflix.jpg' },
-  { id: '7', name: 'PlayStation 5', category: 'electronics', imageUrl: '/images/ps5.jpg' },
-  { id: '8', name: 'Stranger Things', category: 'tv-shows', imageUrl: '/images/stranger.jpg' },
-];
-
-// Popular search terms
+// Popular search terms - could be stored in and fetched from Firestore in production
 const popularSearches = [
   'iPhone',
   'Netflix',
   'Tesla',
   'PlayStation',
   'Amazon',
-  'Game of Thrones',
+  'Google',
 ];
 
 type SearchBarProps = {
@@ -53,7 +44,41 @@ export default function SearchBar({
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  
   const searchRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  
+  // Debounce search query to reduce API calls
+  const debouncedQuery = useDebounce(query, 300);
+
+  // Load recent searches from localStorage on component mount
+  useEffect(() => {
+    try {
+      const storedSearches = localStorage.getItem('recentSearches');
+      if (storedSearches) {
+        setRecentSearches(JSON.parse(storedSearches).slice(0, 5));
+      }
+    } catch (err) {
+      console.error('Error loading recent searches:', err);
+    }
+  }, []);
+
+  // Save a search term to recent searches
+  const saveToRecentSearches = useCallback((term: string) => {
+    try {
+      const updatedSearches = [
+        term,
+        ...recentSearches.filter(item => item !== term)
+      ].slice(0, 5);
+      
+      setRecentSearches(updatedSearches);
+      localStorage.setItem('recentSearches', JSON.stringify(updatedSearches));
+    } catch (err) {
+      console.error('Error saving recent search:', err);
+    }
+  }, [recentSearches]);
 
   // Handle click outside to close results
   useEffect(() => {
@@ -82,45 +107,79 @@ export default function SearchBar({
     setQuery(newQuery);
     
     if (newQuery.length > 1) {
-      performSearch(newQuery);
+      setShowResults(true);
     } else {
       setResults([]);
-      setShowResults(false);
+      setShowResults(newQuery.length > 0);
     }
   };
 
-  // Simulated search function
-  // In production, replace with actual API call
-  const performSearch = (searchQuery: string) => {
-    setIsLoading(true);
+  // Search Firestore based on debounced query
+  useEffect(() => {
+    if (debouncedQuery.length < 2) return;
     
-    // Simulate API call delay
-    setTimeout(() => {
-      const filteredResults = mockSearchResults
-        .filter(item => 
-          item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          item.category.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-        .slice(0, maxResults);
+    const performSearch = async () => {
+      setIsLoading(true);
+      setError(null);
       
-      setResults(filteredResults);
-      setShowResults(true);
-      setIsLoading(false);
-    }, 300);
-  };
+      try {
+        // Capitalize first letter of query to handle case sensitivity
+        const searchTerm = debouncedQuery.toLowerCase();
+        const searchTermEnd = searchTerm + '\uf8ff';  // High code point for prefix search
+        
+        // Create a query to search by name
+        const itemsQuery = query(
+          collection(db, 'items'),
+          where('name_lower', '>=', searchTerm),
+          where('name_lower', '<=', searchTermEnd),
+          orderBy('name_lower'),
+          limit(maxResults)
+        );
+        
+        // Execute the query
+        const snapshot = await getDocs(itemsQuery);
+        
+        // Map to search results
+        const searchResults = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            name: data.name || 'Unknown Item',
+            category: data.category || 'uncategorized',
+            imageUrl: data.imageUrl || null
+          };
+        });
+        
+        setResults(searchResults);
+      } catch (err) {
+        console.error('Error searching items:', err);
+        setError('Failed to search. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    performSearch();
+  }, [debouncedQuery, maxResults]);
 
   // Clear search
   const clearSearch = () => {
     setQuery('');
     setResults([]);
     setShowResults(false);
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
   };
 
   // Handle form submission
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     
     if (query.trim()) {
+      // Save search term to recent searches
+      saveToRecentSearches(query.trim());
+      
       // Navigate to search results page
       router.push(`/search?q=${encodeURIComponent(query.trim())}`);
       
@@ -133,16 +192,30 @@ export default function SearchBar({
     }
   };
 
+  // Handle pressing enter on an autocomplete item
+  const handleKeyDown = (e: React.KeyboardEvent, result?: SearchResult) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (result) {
+        handleSelectResult(result);
+      } else {
+        handleSubmit();
+      }
+    }
+  };
+
   // Handle selecting a search result
   const handleSelectResult = (result: SearchResult) => {
+    saveToRecentSearches(result.name);
     router.push(`/item/${result.id}`);
     setShowResults(false);
   };
 
-  // Handle popular search click
-  const handlePopularSearch = (term: string) => {
+  // Handle popular or recent search click
+  const handleSearchTerm = (term: string) => {
     setQuery(term);
-    performSearch(term);
+    setShowResults(true);
+    // The search will be performed when the debounced query updates
   };
 
   // Define classes based on variant
@@ -182,23 +255,29 @@ export default function SearchBar({
       <form onSubmit={handleSubmit} className="relative">
         {/* Search icon */}
         <Search 
-          className={`absolute top-1/2 transform -translate-y-1/2 text-gray-400 ${variantClasses.icon}`} 
+          className={`absolute top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 ${variantClasses.icon}`} 
         />
         
         {/* Search input */}
         <input
+          ref={inputRef}
           type="text"
           placeholder={placeholder}
           value={query}
           onChange={handleSearchInput}
-          onFocus={() => query.length > 1 && setShowResults(true)}
+          onFocus={() => query.length > 0 && setShowResults(true)}
           className={`
             ${variantClasses.input}
-            bg-white border border-gray-300 text-gray-900 
+            bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100
             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
             transition-shadow
           `}
           aria-label="Search"
+          aria-autocomplete="list"
+          aria-expanded={showResults}
+          role="combobox"
+          aria-controls="search-results"
+          autoComplete="off"
         />
         
         {/* Clear button */}
@@ -206,7 +285,7 @@ export default function SearchBar({
           <button 
             type="button"
             onClick={clearSearch}
-            className={`absolute top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 ${variantClasses.clearButton}`}
+            className={`absolute top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 ${variantClasses.clearButton}`}
             aria-label="Clear search"
           >
             <X className="h-4 w-4" />
@@ -231,62 +310,129 @@ export default function SearchBar({
 
       {/* Search results dropdown */}
       {showResults && (
-        <div className="absolute mt-2 w-full bg-white rounded-md shadow-lg z-10 overflow-hidden border border-gray-200">
+        <div 
+          className="absolute mt-2 w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 overflow-hidden border border-gray-200 dark:border-gray-700"
+          id="search-results"
+        >
           {isLoading ? (
-            <div className="p-4 text-center text-gray-500">
-              <div className="animate-spin inline-block h-5 w-5 border-2 border-current border-t-transparent rounded-full mr-2"></div>
-              Searching...
+            <div className="p-4 text-center text-gray-500 dark:text-gray-400 flex items-center justify-center">
+              <Loader2 className="animate-spin h-5 w-5 mr-2" />
+              <span>Searching...</span>
+            </div>
+          ) : error ? (
+            <div className="p-4 text-center text-red-500 dark:text-red-400">
+              <p>{error}</p>
+              <button
+                type="button"
+                onClick={() => { setError(null); setQuery(''); }}
+                className="mt-2 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm font-medium"
+              >
+                Clear search
+              </button>
             </div>
           ) : results.length > 0 ? (
-            <ul className="max-h-72 overflow-y-auto">
-              {results.map((result) => (
+            <ul className="max-h-72 overflow-y-auto" role="listbox">
+              {results.map((result, index) => (
                 <li 
                   key={result.id}
-                  className="border-b border-gray-100 last:border-none hover:bg-gray-50 cursor-pointer"
+                  className="border-b border-gray-100 dark:border-gray-700 last:border-none hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
                   onClick={() => handleSelectResult(result)}
+                  onKeyDown={(e) => handleKeyDown(e, result)}
+                  role="option"
+                  aria-selected={false}
+                  tabIndex={0}
                 >
                   <div className="flex items-center p-3">
-                    <div className="w-8 h-8 bg-gray-200 rounded-md flex-shrink-0 mr-3">
-                      {/* Image would be loaded here in production */}
+                    <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-md flex-shrink-0 mr-3 relative overflow-hidden">
+                      {result.imageUrl ? (
+                        <Image 
+                          src={result.imageUrl} 
+                          alt={result.name}
+                          fill
+                          sizes="40px"
+                          className="object-cover"
+                          onError={(e) => {
+                            // Fallback for broken images
+                            const target = e.target as HTMLImageElement;
+                            target.src = '/images/placeholder.png';
+                          }}
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-full w-full text-gray-400 dark:text-gray-500">
+                          <Search className="h-4 w-4" />
+                        </div>
+                      )}
                     </div>
                     <div>
-                      <p className="text-gray-800 font-medium">{result.name}</p>
-                      <p className="text-gray-500 text-xs">in {result.category}</p>
+                      <p className="text-gray-800 dark:text-gray-200 font-medium">{result.name}</p>
+                      <p className="text-gray-500 dark:text-gray-400 text-xs">in {result.category}</p>
                     </div>
                   </div>
                 </li>
               ))}
-              <li className="p-2 bg-gray-50 text-center">
+              <li className="p-2 bg-gray-50 dark:bg-gray-700 text-center">
                 <button
                   type="button"
-                  onClick={handleSubmit}
-                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                  onClick={() => handleSubmit()}
+                  className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm font-medium"
                 >
                   See all results for &quot;{query}&quot;
                 </button>
               </li>
             </ul>
           ) : query.length > 1 ? (
-            <div className="p-4 text-center text-gray-500">
+            <div className="p-4 text-center text-gray-500 dark:text-gray-400">
               <p>No results found for &quot;{query}&quot;</p>
               <button
                 type="button"
-                onClick={handleSubmit}
-                className="mt-2 text-blue-600 hover:text-blue-800 text-sm font-medium"
+                onClick={() => handleSubmit()}
+                className="mt-2 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm font-medium"
               >
                 Search anyway
               </button>
             </div>
+          ) : recentSearches.length > 0 ? (
+            <div className="p-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Recent searches:</p>
+              <div className="flex flex-wrap gap-2">
+                {recentSearches.map((term) => (
+                  <button
+                    key={`recent-${term}`}
+                    type="button"
+                    onClick={() => handleSearchTerm(term)}
+                    className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md text-gray-800 dark:text-gray-200 transition-colors"
+                  >
+                    {term}
+                  </button>
+                ))}
+              </div>
+              
+              <div className="border-t border-gray-200 dark:border-gray-700 mt-3 pt-3">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Popular searches:</p>
+                <div className="flex flex-wrap gap-2">
+                  {popularSearches.map((term) => (
+                    <button
+                      key={`popular-${term}`}
+                      type="button"
+                      onClick={() => handleSearchTerm(term)}
+                      className="px-2 py-1 text-xs bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-md text-blue-600 dark:text-blue-400 transition-colors"
+                    >
+                      {term}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="p-4">
-              <p className="text-sm text-gray-500 mb-2">Popular searches:</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Popular searches:</p>
               <div className="flex flex-wrap gap-2">
                 {popularSearches.map((term) => (
                   <button
                     key={term}
                     type="button"
-                    onClick={() => handlePopularSearch(term)}
-                    className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md text-gray-800 transition-colors"
+                    onClick={() => handleSearchTerm(term)}
+                    className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md text-gray-800 dark:text-gray-200 transition-colors"
                   >
                     {term}
                   </button>
@@ -299,3 +445,21 @@ export default function SearchBar({
     </div>
   );
 }
+
+// Create a custom hook for the useDebounce functionality 
+// If this doesn't exist, add it to utils/hooks.ts
+// export function useDebounce<T>(value: T, delay: number): T {
+//   const [debouncedValue, setDebouncedValue] = useState<T>(value);
+//
+//   useEffect(() => {
+//     const handler = setTimeout(() => {
+//       setDebouncedValue(value);
+//     }, delay);
+//
+//     return () => {
+//       clearTimeout(handler);
+//     };
+//   }, [value, delay]);
+//
+//   return debouncedValue;
+// }

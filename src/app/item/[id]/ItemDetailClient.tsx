@@ -3,16 +3,19 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Share2, Bookmark, ArrowLeft } from 'lucide-react';
+import { Share2, Bookmark, ArrowLeft, ThumbsUp, Meh, ThumbsDown } from 'lucide-react';
 import VotingButtons from '@/components/VotingButtons';
 import CommentSection from '@/components/CommentSection';
 import SentimentAnalysis from '@/components/SentimentAnalysis';
+import { useToast } from '@/components/ui/toast';
 
 type RelatedItem = {
   id: string;
   name: string;
   imageUrl: string | null;
-  lovePercentage: number;
+  ratePercentage: number;
+  mehPercentage: number;
+  hatePercentage: number;
 };
 
 type Comment = {
@@ -28,10 +31,10 @@ type ItemProps = {
     id: string;
     name: string;
     description: string;
-    loveCount: number;
+    rateCount: number;
+    mehCount: number;
     hateCount: number;
     category: string;
-    categoryId: number;
     dateAdded: string;
     imageUrl: string | null;
     commentCount: number;
@@ -40,23 +43,27 @@ type ItemProps = {
     creatorName: string;
   };
   relatedItems: RelatedItem[];
-  lovePercentage: number;
+  ratePercentage: number;
+  mehPercentage: number;
   hatePercentage: number;
 };
 
 export default function ItemDetailClient({ 
   item, 
   relatedItems, 
-  lovePercentage, 
+  ratePercentage, 
+  mehPercentage,
   hatePercentage 
 }: ItemProps) {
-  // Add any client-side state or effects here
   const [isSharing, setIsSharing] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [isToastVisible, setIsToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
   
-  // Example of a client-side effect
+  // Check if the item is bookmarked on initial load
   useEffect(() => {
-    // Could check local storage to see if the item is bookmarked
     const checkBookmarkStatus = () => {
       try {
         const bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');
@@ -69,35 +76,45 @@ export default function ItemDetailClient({
     checkBookmarkStatus();
   }, [item.id]);
   
-  // Example handler for sharing functionality
-  const handleShare = () => {
+  // Handle sharing functionality
+  const handleShare = async () => {
     setIsSharing(true);
     
-    // Check if Web Share API is available
-    if (navigator.share) {
-      navigator.share({
-        title: item.name,
-        text: item.description,
-        url: window.location.href,
-      })
-      .then(() => console.log('Shared successfully'))
-      .catch((error) => console.error('Error sharing:', error))
-      .finally(() => setIsSharing(false));
-    } else {
-      // Fallback: Copy to clipboard
-      navigator.clipboard.writeText(window.location.href)
-        .then(() => {
-          alert('Link copied to clipboard!');
-          setIsSharing(false);
-        })
-        .catch(err => {
-          console.error('Failed to copy:', err);
-          setIsSharing(false);
+    try {
+      // Check if Web Share API is available
+      if (navigator.share) {
+        await navigator.share({
+          title: item.name,
+          text: `Check out ${item.name} on Rate It or Hate It!`,
+          url: window.location.href,
         });
+        toast({
+          title: "Shared successfully",
+          variant: "success",
+        });
+      } else {
+        // Fallback: Copy to clipboard
+        await navigator.clipboard.writeText(window.location.href);
+        toast({
+          title: "Link copied to clipboard!",
+          variant: "success",
+        });
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error('Error sharing:', error);
+        toast({
+          title: "Failed to share",
+          description: "Please try again later",
+          variant: "error",
+        });
+      }
+    } finally {
+      setIsSharing(false);
     }
   };
   
-  // Example handler for bookmark functionality
+  // Handle bookmark functionality
   const handleBookmark = () => {
     try {
       const bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');
@@ -107,20 +124,35 @@ export default function ItemDetailClient({
         const updatedBookmarks = bookmarks.filter((id: string) => id !== item.id);
         localStorage.setItem('bookmarks', JSON.stringify(updatedBookmarks));
         setIsBookmarked(false);
+        toast({
+          title: "Removed from bookmarks",
+          variant: "default",
+        });
       } else {
         // Add to bookmarks
         bookmarks.push(item.id);
         localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
         setIsBookmarked(true);
+        toast({
+          title: "Added to bookmarks",
+          variant: "success",
+        });
       }
     } catch (error) {
       console.error('Error updating bookmarks:', error);
+      toast({
+        title: "Couldn't update bookmarks",
+        description: "Please try again later",
+        variant: "error",
+      });
     }
   };
 
+  const totalVotes = item.rateCount + item.mehCount + item.hateCount;
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="container mx-auto px-4 py-8 max-w-5xl">
+      <div className="container mx-auto px-4 py-6 max-w-5xl">
         {/* Back navigation */}
         <Link 
           href={`/category/${item.category}`} 
@@ -130,10 +162,10 @@ export default function ItemDetailClient({
           <span>Back to {item.category}</span>
         </Link>
         
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left column - Image and details */}
           <div className="lg:col-span-2">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden transition-all hover:shadow-lg">
               {/* Item image */}
               <div className="relative h-64 md:h-96 bg-gray-200 dark:bg-gray-700">
                 {item.imageUrl ? (
@@ -144,10 +176,9 @@ export default function ItemDetailClient({
                     sizes="(max-width: 768px) 100vw, 66vw"
                     className="object-contain" 
                     priority
-                    // Fallback for image errors
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
-                      target.src = '/placeholder.png';
+                      target.src = '/images/placeholder.png';
                     }}
                   />
                 ) : (
@@ -161,7 +192,7 @@ export default function ItemDetailClient({
               <div className="p-6">
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{item.name}</h1>
+                    <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-1">{item.name}</h1>
                     <div className="flex items-center space-x-2">
                       <Link 
                         href={`/category/${item.category}`}
@@ -173,9 +204,9 @@ export default function ItemDetailClient({
                       <span className="text-sm text-gray-500 dark:text-gray-400">Added by {item.creatorName}</span>
                     </div>
                   </div>
-                  <div className="flex space-x-2">
+                  <div className="flex space-x-1">
                     <button 
-                      className="p-2 text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+                      className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-blue-100 hover:text-blue-500 dark:hover:bg-blue-900/30 dark:hover:text-blue-400 transition-colors"
                       aria-label="Share"
                       type="button"
                       onClick={handleShare}
@@ -184,10 +215,10 @@ export default function ItemDetailClient({
                       <Share2 size={20} className={isSharing ? 'animate-pulse' : ''} />
                     </button>
                     <button 
-                      className={`p-2 transition-colors ${
+                      className={`p-2 rounded-full transition-colors ${
                         isBookmarked 
-                          ? 'text-blue-500 dark:text-blue-400' 
-                          : 'text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400'
+                          ? 'bg-blue-100 text-blue-500 dark:bg-blue-900/30 dark:text-blue-400' 
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-blue-100 hover:text-blue-500 dark:hover:bg-blue-900/30 dark:hover:text-blue-400'
                       }`}
                       aria-label={isBookmarked ? 'Remove Bookmark' : 'Bookmark'}
                       type="button"
@@ -198,43 +229,70 @@ export default function ItemDetailClient({
                   </div>
                 </div>
                 
-                <p className="text-gray-700 dark:text-gray-300 mb-6">{item.description}</p>
+                <p className="text-gray-700 dark:text-gray-300 mb-6 leading-relaxed">{item.description}</p>
                 
                 {/* Voting section */}
                 <div className="mb-8">
                   <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">What do you think?</h2>
                   <VotingButtons 
                     itemId={item.id} 
-                    initialRateCount={item.loveCount}
+                    initialRateCount={item.rateCount}
+                    initialMehCount={item.mehCount}
                     initialHateCount={item.hateCount}
                   />
                 </div>
                 
                 {/* Vote results */}
-                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 mb-6">
-                  <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Vote Results</h3>
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-5 mb-6">
+                  <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white flex items-center">
+                    MEHtrics
+                    <span className="ml-2 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 text-xs px-2 py-1 rounded-full">
+                      {totalVotes} votes
+                    </span>
+                  </h3>
                   <div className="flex flex-col md:flex-row gap-4">
                     <div className="flex-1">
                       <div className="flex justify-between mb-1">
-                        <p className="text-green-600 dark:text-green-400 font-medium">Rate It</p>
-                        <p className="text-green-600 dark:text-green-400 font-bold">{lovePercentage}%</p>
+                        <p className="flex items-center text-blue-600 dark:text-blue-400 font-medium">
+                          <ThumbsUp size={14} className="mr-1" /> Rate It
+                        </p>
+                        <p className="text-blue-600 dark:text-blue-400 font-bold">{ratePercentage}%</p>
                       </div>
-                      <div className="bg-green-100 dark:bg-green-900/30 h-4 rounded-full overflow-hidden">
+                      <div className="bg-blue-100 dark:bg-blue-900/30 h-4 rounded-full overflow-hidden">
                         <div
-                          className="bg-gradient-to-r from-green-400 to-green-600 h-4 rounded-full"
-                          style={{ width: `${lovePercentage}%` }}
+                          className="bg-gradient-to-r from-blue-400 to-blue-600 h-4 rounded-full transition-all duration-500 ease-out"
+                          style={{ width: `${ratePercentage}%` }}
                         ></div>
                       </div>
-                      <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{item.loveCount} votes</p>
+                      <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{item.rateCount} votes</p>
                     </div>
+                    
                     <div className="flex-1">
                       <div className="flex justify-between mb-1">
-                        <p className="text-red-600 dark:text-red-400 font-medium">Hate It</p>
+                        <p className="flex items-center text-yellow-600 dark:text-yellow-400 font-medium">
+                          <Meh size={14} className="mr-1" /> Meh
+                        </p>
+                        <p className="text-yellow-600 dark:text-yellow-400 font-bold">{mehPercentage}%</p>
+                      </div>
+                      <div className="bg-yellow-100 dark:bg-yellow-900/30 h-4 rounded-full overflow-hidden">
+                        <div
+                          className="bg-gradient-to-r from-yellow-400 to-yellow-600 h-4 rounded-full transition-all duration-500 ease-out"
+                          style={{ width: `${mehPercentage}%` }}
+                        ></div>
+                      </div>
+                      <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{item.mehCount} votes</p>
+                    </div>
+                    
+                    <div className="flex-1">
+                      <div className="flex justify-between mb-1">
+                        <p className="flex items-center text-red-600 dark:text-red-400 font-medium">
+                          <ThumbsDown size={14} className="mr-1" /> Hate It
+                        </p>
                         <p className="text-red-600 dark:text-red-400 font-bold">{hatePercentage}%</p>
                       </div>
                       <div className="bg-red-100 dark:bg-red-900/30 h-4 rounded-full overflow-hidden">
                         <div
-                          className="bg-gradient-to-r from-red-400 to-red-600 h-4 rounded-full"
+                          className="bg-gradient-to-r from-red-400 to-red-600 h-4 rounded-full transition-all duration-500 ease-out"
                           style={{ width: `${hatePercentage}%` }}
                         ></div>
                       </div>
@@ -265,17 +323,18 @@ export default function ItemDetailClient({
             </div>
           </div>
           
-          {/* Right column - Related items and ads */}
-          <div>
+          {/* Right column - Related items and trending */}
+          <div className="space-y-6">
             {/* Related items section */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 transition-all hover:shadow-lg">
               <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Similar Items</h3>
-              <div className="space-y-4">
-                {relatedItems.length > 0 ? (
-                  relatedItems.map(related => (
+              
+              {relatedItems && relatedItems.length > 0 ? (
+                <div className="space-y-4">
+                  {relatedItems.map(related => (
                     <div key={related.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors">
                       <Link href={`/item/${related.id}`} className="flex items-center p-2">
-                        <div className="relative w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden">
+                        <div className="relative w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden">
                           {related.imageUrl ? (
                             <Image
                               src={related.imageUrl}
@@ -290,46 +349,102 @@ export default function ItemDetailClient({
                             </div>
                           )}
                         </div>
-                        <div className="ml-3">
-                          <p className="font-medium text-gray-900 dark:text-white">{related.name}</p>
-                          <div className="flex items-center">
-                            <div className="w-16 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mr-2">
+                        <div className="ml-3 flex-1">
+                          <p className="font-medium text-gray-900 dark:text-white text-sm">{related.name}</p>
+                          <div className="flex items-center mt-1">
+                            <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden flex">
                               <div 
-                                className="h-1.5 bg-green-500 rounded-full" 
-                                style={{ width: `${related.lovePercentage}%` }}
+                                className="h-1.5 bg-blue-500" 
+                                style={{ width: `${related.ratePercentage}%` }}
+                              ></div>
+                              <div 
+                                className="h-1.5 bg-yellow-500" 
+                                style={{ width: `${related.mehPercentage}%` }}
+                              ></div>
+                              <div 
+                                className="h-1.5 bg-red-500" 
+                                style={{ width: `${related.hatePercentage}%` }}
                               ></div>
                             </div>
-                            <span className="text-xs text-gray-500 dark:text-gray-400">{related.lovePercentage}%</span>
                           </div>
                         </div>
                       </Link>
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-gray-500 dark:text-gray-400">No similar items found</p>
-                  </div>
-                )}
-              </div>
-              <Link 
-                href={`/category/${item.category}`}
-                className="mt-4 text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm block text-center"
-              >
-                View more {item.category}
-              </Link>
+                  ))}
+                  
+                  <Link 
+                    href={`/category/${item.category}`}
+                    className="mt-4 inline-block w-full text-center px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+                  >
+                    View more in {item.category}
+                  </Link>
+                </div>
+              ) : (
+                <div className="text-center py-8 px-4">
+                  <p className="text-gray-500 dark:text-gray-400 mb-4">No similar items found</p>
+                  <Link 
+                    href="/add-item"
+                    className="inline-block px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium"
+                  >
+                    Add a similar item
+                  </Link>
+                </div>
+              )}
             </div>
             
-            {/* Placeholder for future recommendation widget */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+            {/* Trending widget - Using real data from Firestore */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 transition-all hover:shadow-lg">
               <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Trending Now</h3>
               <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">What people are rating this week</p>
               
-              {/* This would be populated with actual trending items */}
-              <div className="space-y-2">
-                <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded animate-pulse"></div>
-                <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded animate-pulse"></div>
-                <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded animate-pulse"></div>
+              <div className="space-y-3">
+                {loading ? (
+                  <>
+                    <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>
+                    <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>
+                    <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>
+                  </>
+                ) : relatedItems && relatedItems.length > 0 ? (
+                  relatedItems.slice(0, 3).map(item => (
+                    <Link 
+                      key={item.id} 
+                      href={`/item/${item.id}`}
+                      className="block p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                    >
+                      <div className="flex justify-between items-center">
+                        <p className="font-medium text-gray-900 dark:text-white text-sm truncate">{item.name}</p>
+                        <div className="flex space-x-2">
+                          <span className="inline-flex items-center text-xs text-blue-600 dark:text-blue-400">
+                            <ThumbsUp size={12} className="mr-1" /> 
+                            {item.ratePercentage}%
+                          </span>
+                        </div>
+                      </div>
+                    </Link>
+                  ))
+                ) : (
+                  <p className="text-center text-gray-500 dark:text-gray-400 py-4">No trending items yet</p>
+                )}
               </div>
+              
+              <Link 
+                href="/"
+                className="mt-4 text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm block text-center"
+              >
+                Explore trending items
+              </Link>
+            </div>
+            
+            {/* New widget: User Contribution */}
+            <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl shadow-md p-6 text-white">
+              <h3 className="text-lg font-semibold mb-4">Add Your Own Item</h3>
+              <p className="text-blue-100 mb-4">Have a product you want others to rate? Add it to our platform!</p>
+              <Link 
+                href="/add-item"
+                className="block w-full text-center px-4 py-3 bg-white text-blue-600 rounded-lg hover:bg-blue-50 transition-colors font-medium"
+              >
+                Add New Item
+              </Link>
             </div>
           </div>
         </div>

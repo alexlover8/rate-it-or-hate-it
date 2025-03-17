@@ -1,15 +1,13 @@
-// Server component - no 'use client' directive
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 import ProfileContent from './ProfileContent';
 
 // Generate static params for static export
 export function generateStaticParams() {
-  // For the profile page, we only need to generate the base route
   return [{}];
 }
 
-// Main component that uses the client component
+// Main component - Keep this extremely minimal
 export default function ProfilePage() {
   return (
     <Suspense fallback={

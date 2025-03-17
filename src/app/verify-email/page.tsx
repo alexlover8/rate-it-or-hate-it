@@ -1,4 +1,3 @@
-// This is a Server Component (no 'use client' directive)
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 import VerifyEmailContent from './VerifyEmailContent';

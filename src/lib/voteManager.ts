@@ -33,15 +33,16 @@ export interface VoteLimits {
 
 export interface VoteDetails {
   itemId: string;
-  voteType: 'rate' | 'hate';
+  voteType: 'rate' | 'meh' | 'hate';
   timestamp: Date;
-  previousVote?: 'rate' | 'hate' | null;
+  previousVote?: 'rate' | 'meh' | 'hate' | null;
 }
 
 export interface VoteResult {
   success: boolean;
   error?: string;
   newRateCount?: number;
+  newMehCount?: number;
   newHateCount?: number;
 }
 
@@ -332,7 +333,7 @@ export function useVoteManager() {
   }, [user, userProfile, deviceId, votingLimits]);
   
   // Get user's previous vote on an item
-  const getUserVote = useCallback(async (itemId: string): Promise<'rate' | 'hate' | null> => {
+  const getUserVote = useCallback(async (itemId: string): Promise<'rate' | 'meh' | 'hate' | null> => {
     try {
       if (user) {
         // Check authenticated user's vote
@@ -361,7 +362,7 @@ export function useVoteManager() {
   // Record a vote
   const recordVote = useCallback(async (
     itemId: string, 
-    voteType: 'rate' | 'hate',
+    voteType: 'rate' | 'meh' | 'hate',
     options: { 
       preventDuplicates?: boolean,
       maxRetries?: number 
@@ -385,6 +386,7 @@ export function useVoteManager() {
       let retryCount = 0;
       let success = false;
       let newRateCount = 0;
+      let newMehCount = 0;
       let newHateCount = 0;
       
       // Get current item data
@@ -486,10 +488,13 @@ export function useVoteManager() {
             
             // Calculate new vote counts for return value
             newRateCount = currentData ? currentData.rateCount || 0 : 0;
+            newMehCount = currentData ? currentData.mehCount || 0 : 0;
             newHateCount = currentData ? currentData.hateCount || 0 : 0;
             
             if (voteType === 'rate') {
               newRateCount++;
+            } else if (voteType === 'meh') {
+              newMehCount++;
             } else {
               newHateCount++;
             }
@@ -497,6 +502,8 @@ export function useVoteManager() {
             if (isChangingVote) {
               if (previousVote === 'rate') {
                 newRateCount--;
+              } else if (previousVote === 'meh') {
+                newMehCount--;
               } else {
                 newHateCount--;
               }
@@ -506,6 +513,7 @@ export function useVoteManager() {
             await setDoc(itemRef, {
               id: itemId,
               rateCount: voteType === 'rate' ? 1 : 0,
+              mehCount: voteType === 'meh' ? 1 : 0,
               hateCount: voteType === 'hate' ? 1 : 0,
               totalVotes: 1,
               created: serverTimestamp(),
@@ -513,6 +521,7 @@ export function useVoteManager() {
             });
             
             newRateCount = voteType === 'rate' ? 1 : 0;
+            newMehCount = voteType === 'meh' ? 1 : 0;
             newHateCount = voteType === 'hate' ? 1 : 0;
           }
           
@@ -533,6 +542,7 @@ export function useVoteManager() {
       return { 
         success: true, 
         newRateCount,
+        newMehCount,
         newHateCount
       };
     } catch (error) {
@@ -594,11 +604,13 @@ export function useVoteManager() {
   // Get vote statistics for an item
   const getVoteStats = useCallback(async (itemId: string): Promise<{
     rateCount: number;
+    mehCount: number;
     hateCount: number;
     totalVotes: number;
     ratePercentage: number;
+    mehPercentage: number;
     hatePercentage: number;
-    userVote: 'rate' | 'hate' | null;
+    userVote: 'rate' | 'meh' | 'hate' | null;
   }> => {
     try {
       // Get item data
@@ -611,12 +623,16 @@ export function useVoteManager() {
       if (itemDoc.exists()) {
         const data = itemDoc.data();
         const rateCount = data.rateCount || 0;
+        const mehCount = data.mehCount || 0;
         const hateCount = data.hateCount || 0;
-        const totalVotes = data.totalVotes || (rateCount + hateCount);
+        const totalVotes = data.totalVotes || (rateCount + mehCount + hateCount);
         
         // Calculate percentages
         const ratePercentage = totalVotes > 0 
           ? Math.round((rateCount / totalVotes) * 100) 
+          : 0;
+        const mehPercentage = totalVotes > 0 
+          ? Math.round((mehCount / totalVotes) * 100)
           : 0;
         const hatePercentage = totalVotes > 0 
           ? Math.round((hateCount / totalVotes) * 100)
@@ -624,9 +640,11 @@ export function useVoteManager() {
         
         return {
           rateCount,
+          mehCount,
           hateCount,
           totalVotes,
           ratePercentage,
+          mehPercentage,
           hatePercentage,
           userVote
         };
@@ -635,9 +653,11 @@ export function useVoteManager() {
       // Return default values if item doesn't exist
       return {
         rateCount: 0,
+        mehCount: 0,
         hateCount: 0,
         totalVotes: 0,
         ratePercentage: 0,
+        mehPercentage: 0,
         hatePercentage: 0,
         userVote
       };
@@ -646,9 +666,11 @@ export function useVoteManager() {
       // Return fallback values on error
       return {
         rateCount: 0,
+        mehCount: 0,
         hateCount: 0,
         totalVotes: 0,
         ratePercentage: 0,
+        mehPercentage: 0,
         hatePercentage: 0,
         userVote: null
       };

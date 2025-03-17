@@ -29,11 +29,11 @@ export const viewport = {
 export const metadata = {
   metadataBase: new URL('https://rateithateit.com'), // Change to your actual domain
   title: {
-    default: 'Rate It or Hate It | Your Voice Matters',
+    default: 'Rate It or Hate It | Your Opinion, Your MEHtrics',
     template: '%s | Rate It or Hate It'
   },
-  description: 'The modern platform to share your opinions on products and companies. Vote, discover trends, and see what the world loves or hates.',
-  keywords: ['rate', 'hate', 'review', 'opinion', 'product reviews', 'company feedback', 'vote', 'trend'],
+  description: 'The modern platform to share your opinions on products. Rate It, Meh, or Hate It and discover what the world thinks with our MEHtrics system.',
+  keywords: ['rate', 'meh', 'hate', 'review', 'opinion', 'product reviews', 'mehtrics', 'company feedback', 'vote', 'trend'],
   authors: [{ name: 'Your Name', url: 'https://yourwebsite.com' }],
   creator: 'Your Name or Company',
   publisher: 'Your Company',
@@ -42,21 +42,21 @@ export const metadata = {
     locale: 'en_US',
     url: 'https://rateithateit.com',
     siteName: 'Rate It or Hate It',
-    title: 'Rate It or Hate It | Your Voice Matters',
-    description: 'The modern platform to share your opinions on products and companies.',
+    title: 'Rate It or Hate It | Your Opinion, Your MEHtrics',
+    description: 'The modern platform to share your opinions on products. Express what you love, feel neutral about, or hate.',
     images: [
       {
         url: '/og-image.jpg',
         width: 1200,
         height: 630,
-        alt: 'Rate It or Hate It Platform'
+        alt: 'Rate It or Hate It Platform - Rate It, Meh, or Hate It'
       }
     ]
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Rate It or Hate It | Your Voice Matters',
-    description: 'The modern platform to share your opinions on products and companies.',
+    title: 'Rate It or Hate It | Your Opinion, Your MEHtrics',
+    description: 'The modern platform to share your opinions on products. Express what you love, feel neutral about, or hate.',
     images: ['/twitter-image.jpg'],
     creator: '@yourhandle'
   },
@@ -103,6 +103,7 @@ export default function RootLayout({
               '@type': 'WebSite',
               name: 'Rate It or Hate It',
               url: 'https://rateithateit.com',
+              description: 'The modern platform to share your opinions on products. Rate It, Meh, or Hate It and discover what the world thinks.',
               potentialAction: {
                 '@type': 'SearchAction',
                 target: 'https://rateithateit.com/search?q={search_term_string}',

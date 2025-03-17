@@ -54,7 +54,8 @@ async function getItem(id: string) {
         id,
         name: `Item ${id}`,
         description: 'No description available.',
-        loveCount: 0,
+        rateCount: 0,
+        mehCount: 0,
         hateCount: 0,
         category: 'uncategorized',
         categoryId: 0,
@@ -89,7 +90,8 @@ async function getItem(id: string) {
       id,
       name: data.name || `Item ${id}`,
       description: data.description || 'No description available.',
-      loveCount: data.rateCount || 0,
+      rateCount: data.rateCount || 0,
+      mehCount: data.mehCount || 0,
       hateCount: data.hateCount || 0,
       category: data.category || 'uncategorized',
       categoryId: data.categoryId || 0,
@@ -106,7 +108,8 @@ async function getItem(id: string) {
       id,
       name: `Error Loading Item`,
       description: 'There was an error loading this item.',
-      loveCount: 0,
+      rateCount: 0,
+      mehCount: 0,
       hateCount: 0,
       category: 'uncategorized',
       categoryId: 0,
@@ -133,16 +136,24 @@ async function getRelatedItems(category: string, currentItemId: string) {
     const relatedSnapshot = await getDocs(relatedQuery);
     const relatedItems = relatedSnapshot.docs.map(doc => {
       const data = doc.data();
-      const totalVotes = (data.rateCount || 0) + (data.hateCount || 0);
-      const lovePercentage = totalVotes > 0 
+      const totalVotes = (data.rateCount || 0) + (data.mehCount || 0) + (data.hateCount || 0);
+      const ratePercentage = totalVotes > 0 
         ? Math.round(((data.rateCount || 0) / totalVotes) * 100) 
+        : 50;
+      const mehPercentage = totalVotes > 0 
+        ? Math.round(((data.mehCount || 0) / totalVotes) * 100)
+        : 0;
+      const hatePercentage = totalVotes > 0 
+        ? 100 - ratePercentage - mehPercentage
         : 50;
         
       return {
         id: doc.id,
         name: data.name || 'Unknown Item',
         imageUrl: data.imageUrl || null,
-        lovePercentage: lovePercentage
+        ratePercentage,
+        mehPercentage,
+        hatePercentage,
       };
     });
     
@@ -158,10 +169,11 @@ export default async function ItemDetailPage({ params }: { params: { id: string 
   const item = await getItem(id);
   const relatedItems = await getRelatedItems(item.category, id);
 
-  // Calculate percentages
-  const totalVotes = item.loveCount + item.hateCount;
-  const lovePercentage = totalVotes > 0 ? Math.round((item.loveCount / totalVotes) * 100) : 0;
-  const hatePercentage = 100 - lovePercentage;
+  // Calculate percentages using rateCount, mehCount, and hateCount
+  const totalVotes = item.rateCount + item.mehCount + item.hateCount;
+  const ratePercentage = totalVotes > 0 ? Math.round((item.rateCount / totalVotes) * 100) : 0;
+  const mehPercentage = totalVotes > 0 ? Math.round((item.mehCount / totalVotes) * 100) : 0;
+  const hatePercentage = totalVotes > 0 ? Math.round((item.hateCount / totalVotes) * 100) : 0;
 
   return (
     <Suspense fallback={
@@ -175,7 +187,8 @@ export default async function ItemDetailPage({ params }: { params: { id: string 
       <ItemDetailClient
         item={item}
         relatedItems={relatedItems}
-        lovePercentage={lovePercentage}
+        ratePercentage={ratePercentage}
+        mehPercentage={mehPercentage}
         hatePercentage={hatePercentage}
       />
     </Suspense>
