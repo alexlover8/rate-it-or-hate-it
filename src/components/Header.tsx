@@ -231,7 +231,7 @@ export default function Header() {
                   <div className="border-t border-gray-200 dark:border-gray-700 my-2"></div>
                   
                   <Link 
-                    href="/category/all"
+                    href="/category"
                     className="block px-3 py-2 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 font-medium text-center transition-colors"
                     onClick={closeMenu}
                   >
@@ -469,7 +469,7 @@ export default function Header() {
             ))}
             
             <Link 
-              href="/category/all"
+              href="/category"
               className="block px-3 py-2.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors text-center mt-2"
               onClick={closeMenu}
             >

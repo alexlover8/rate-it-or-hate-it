@@ -7,12 +7,13 @@ import {
   query, 
   where, 
   getDocs, 
-  limit, 
+  limit as firestoreLimit, // Renamed to avoid conflicts
   orderBy,
   startAfter,
   DocumentSnapshot,
   Timestamp,
-  QueryConstraint
+  QueryConstraint,
+  DocumentData
 } from 'firebase/firestore';
 
 // Vote type definition
@@ -147,6 +148,28 @@ function createSortedQuery(
   }
 }
 
+// Helper function to safely extract data from Firestore documents
+function extractItemData(doc: DocumentSnapshot): Item {
+  const data = doc.data() as DocumentData; // Type assertion
+  return {
+    id: doc.id,
+    name: data?.name || 'Unnamed Item',
+    description: data?.description || 'No description available.',
+    rateCount: data?.rateCount || 0,
+    mehCount: data?.mehCount || 0,
+    hateCount: data?.hateCount || 0,
+    category: data?.category || 'uncategorized',
+    dateAdded: data?.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
+    lastUpdated: data?.lastUpdated?.toDate()?.toISOString() || data?.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
+    imageUrl: data?.imageUrl || null,
+    commentCount: data?.commentCount || 0,
+    comments: [],
+    creatorId: data?.creatorId || null,
+    creatorName: data?.creatorName || 'Unknown User',
+    tags: data?.tags || []
+  };
+}
+
 // Get all items with pagination, sorting, and filtering
 export async function getAllItems(
   lastDoc?: DocumentSnapshot, 
@@ -182,38 +205,20 @@ export async function getAllItems(
         collection(db, 'items'),
         ...queryConstraints,
         startAfter(lastDoc),
-        limit(itemsPerPage)
+        firestoreLimit(itemsPerPage)
       );
     } else {
       itemsQuery = query(
         collection(db, 'items'),
         ...queryConstraints,
-        limit(itemsPerPage)
+        firestoreLimit(itemsPerPage)
       );
     }
     
     const itemsSnapshot = await getDocs(itemsQuery);
     
     const items = itemsSnapshot.docs.map(doc => {
-      const data = doc.data();
-      const item: Item = {
-        id: doc.id,
-        name: data.name || 'Unnamed Item',
-        description: data.description || 'No description available.',
-        rateCount: data.rateCount || 0,
-        mehCount: data.mehCount || 0,
-        hateCount: data.hateCount || 0,
-        category: data.category || 'uncategorized',
-        dateAdded: data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-        lastUpdated: data.lastUpdated?.toDate()?.toISOString() || data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-        imageUrl: data.imageUrl || null,
-        commentCount: data.commentCount || 0,
-        comments: [],
-        creatorId: data.creatorId || null,
-        creatorName: data.creatorName || 'Unknown User',
-        tags: data.tags || []
-      };
-      
+      const item = extractItemData(doc);
       return calculateVotePercentages(item);
     });
     
@@ -233,7 +238,7 @@ export async function getAllItems(
 }
 
 // Get trending items with customizable time period
-export async function getTrendingItems(limit: number = 10, days: number = 7): Promise<Item[]> {
+export async function getTrendingItems(limitNum: number = 10, days: number = 7): Promise<Item[]> {
   try {
     // Get items from the specified number of days ago
     const startDate = new Date();
@@ -244,31 +249,13 @@ export async function getTrendingItems(limit: number = 10, days: number = 7): Pr
       where('lastUpdated', '>=', Timestamp.fromDate(startDate)),
       orderBy('lastUpdated', 'desc'),
       orderBy('totalVotes', 'desc'),
-      limit(limit)
+      firestoreLimit(limitNum)
     );
     
     const trendingSnapshot = await getDocs(trendingQuery);
     
     const items = trendingSnapshot.docs.map(doc => {
-      const data = doc.data();
-      const item: Item = {
-        id: doc.id,
-        name: data.name || 'Unnamed Item',
-        description: data.description || 'No description available.',
-        rateCount: data.rateCount || 0,
-        mehCount: data.mehCount || 0,
-        hateCount: data.hateCount || 0,
-        category: data.category || 'uncategorized',
-        dateAdded: data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-        lastUpdated: data.lastUpdated?.toDate()?.toISOString() || data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-        imageUrl: data.imageUrl || null,
-        commentCount: data.commentCount || 0,
-        comments: [],
-        creatorId: data.creatorId || null,
-        creatorName: data.creatorName || 'Unknown User',
-        tags: data.tags || []
-      };
-      
+      const item = extractItemData(doc);
       return calculateVotePercentages(item);
     });
     
@@ -280,36 +267,18 @@ export async function getTrendingItems(limit: number = 10, days: number = 7): Pr
 }
 
 // Get recent items
-export async function getRecentItems(limit: number = 4): Promise<Item[]> {
+export async function getRecentItems(limitNum: number = 4): Promise<Item[]> {
   try {
     const recentQuery = query(
       collection(db, 'items'),
       orderBy('createdAt', 'desc'),
-      limit(limit)
+      firestoreLimit(limitNum)
     );
     
     const recentSnapshot = await getDocs(recentQuery);
     
     const items = recentSnapshot.docs.map(doc => {
-      const data = doc.data();
-      const item: Item = {
-        id: doc.id,
-        name: data.name || 'Unnamed Item',
-        description: data.description || 'No description available.',
-        rateCount: data.rateCount || 0,
-        mehCount: data.mehCount || 0,
-        hateCount: data.hateCount || 0,
-        category: data.category || 'uncategorized',
-        dateAdded: data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-        lastUpdated: data.lastUpdated?.toDate()?.toISOString() || data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-        imageUrl: data.imageUrl || null,
-        commentCount: data.commentCount || 0,
-        comments: [],
-        creatorId: data.creatorId || null,
-        creatorName: data.creatorName || 'Unknown User',
-        tags: data.tags || []
-      };
-      
+      const item = extractItemData(doc);
       return calculateVotePercentages(item);
     });
     
@@ -321,37 +290,19 @@ export async function getRecentItems(limit: number = 4): Promise<Item[]> {
 }
 
 // Get controversial items (similar rate and hate counts with high total votes)
-export async function getControversialItems(limit: number = 10): Promise<Item[]> {
+export async function getControversialItems(limitNum: number = 10): Promise<Item[]> {
   try {
     // First get items with high vote counts
     const itemsQuery = query(
       collection(db, 'items'),
       orderBy('commentCount', 'desc'),
-      limit(limit * 3)
+      firestoreLimit(limitNum * 3)
     );
     
     const itemsSnapshot = await getDocs(itemsQuery);
     
     let items = itemsSnapshot.docs.map(doc => {
-      const data = doc.data();
-      const item: Item = {
-        id: doc.id,
-        name: data.name || 'Unnamed Item',
-        description: data.description || 'No description available.',
-        rateCount: data.rateCount || 0,
-        mehCount: data.mehCount || 0,
-        hateCount: data.hateCount || 0,
-        category: data.category || 'uncategorized',
-        dateAdded: data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-        lastUpdated: data.lastUpdated?.toDate()?.toISOString() || data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-        imageUrl: data.imageUrl || null,
-        commentCount: data.commentCount || 0,
-        comments: [],
-        creatorId: data.creatorId || null,
-        creatorName: data.creatorName || 'Unknown User',
-        tags: data.tags || []
-      };
-      
+      const item = extractItemData(doc);
       return calculateVotePercentages(item);
     });
     
@@ -362,8 +313,8 @@ export async function getControversialItems(limit: number = 10): Promise<Item[]>
         const controversyScore = 100 - Math.abs((item.ratePercentage || 0) - (item.hatePercentage || 0));
         return { ...item, controversyScore };
       })
-      .sort((a, b) => (b.controversyScore || 0) - (a.controversyScore || 0))
-      .slice(0, limit);
+      .sort((a: any, b: any) => (b.controversyScore || 0) - (a.controversyScore || 0))
+      .slice(0, limitNum);
     
     return items;
   } catch (error) {
@@ -389,35 +340,38 @@ export async function getItemById(id: string): Promise<Item | null> {
       collection(db, 'comments'),
       where('itemId', '==', id),
       orderBy('timestamp', 'desc'),
-      limit(20)
+      firestoreLimit(20)
     );
     const commentsSnapshot = await getDocs(commentsQuery);
-    const comments = commentsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      text: doc.data().text,
-      userId: doc.data().userId,
-      userName: doc.data().userName,
-      userPhotoURL: doc.data().userPhotoURL,
-      sentiment: doc.data().sentiment || null,
-      timestamp: doc.data().timestamp?.toDate() || new Date(),
-    }));
+    const comments = commentsSnapshot.docs.map(doc => {
+      const commentData = doc.data();
+      return {
+        id: doc.id,
+        text: commentData?.text || '',
+        userId: commentData?.userId || '',
+        userName: commentData?.userName || '',
+        userPhotoURL: commentData?.userPhotoURL,
+        sentiment: commentData?.sentiment || null,
+        timestamp: commentData?.timestamp?.toDate() || new Date(),
+      };
+    });
     
     const item: Item = {
       id,
-      name: data.name || `Item ${id}`,
-      description: data.description || 'No description available.',
-      rateCount: data.rateCount || 0,
-      mehCount: data.mehCount || 0,
-      hateCount: data.hateCount || 0,
-      category: data.category || 'uncategorized',
-      dateAdded: data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-      lastUpdated: data.lastUpdated?.toDate()?.toISOString() || data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-      imageUrl: data.imageUrl || null,
-      commentCount: data.commentCount || comments.length,
+      name: data?.name || `Item ${id}`,
+      description: data?.description || 'No description available.',
+      rateCount: data?.rateCount || 0,
+      mehCount: data?.mehCount || 0,
+      hateCount: data?.hateCount || 0,
+      category: data?.category || 'uncategorized',
+      dateAdded: data?.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
+      lastUpdated: data?.lastUpdated?.toDate()?.toISOString() || data?.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
+      imageUrl: data?.imageUrl || null,
+      commentCount: data?.commentCount || comments.length,
       comments: comments,
-      creatorId: data.creatorId || null,
-      creatorName: data.creatorName || 'Unknown',
-      tags: data.tags || []
+      creatorId: data?.creatorId || null,
+      creatorName: data?.creatorName || 'Unknown',
+      tags: data?.tags || []
     };
     
     return calculateVotePercentages(item);
@@ -428,29 +382,29 @@ export async function getItemById(id: string): Promise<Item | null> {
 }
 
 // Get related items
-export async function getRelatedItems(category: string, currentItemId: string, limit: number = 3): Promise<RelatedItem[]> {
+export async function getRelatedItems(category: string, currentItemId: string, limitNum: number = 3): Promise<RelatedItem[]> {
   try {
     const relatedQuery = query(
       collection(db, 'items'),
       where('category', '==', category),
-      limit(limit + 1) // Get one extra in case the current item is included
+      firestoreLimit(limitNum + 1)
     );
     
     const relatedSnapshot = await getDocs(relatedQuery);
     const relatedItems = relatedSnapshot.docs
       .filter(doc => doc.id !== currentItemId) // Filter out the current item
-      .slice(0, limit) // Limit to requested number
+      .slice(0, limitNum) // Limit to requested number
       .map(doc => {
         const data = doc.data();
-        const rateCount = data.rateCount || 0;
-        const mehCount = data.mehCount || 0;
-        const hateCount = data.hateCount || 0;
+        const rateCount = data?.rateCount || 0;
+        const mehCount = data?.mehCount || 0;
+        const hateCount = data?.hateCount || 0;
         const totalVotes = rateCount + mehCount + hateCount;
         
         return {
           id: doc.id,
-          name: data.name || 'Unknown Item',
-          imageUrl: data.imageUrl || null,
+          name: data?.name || 'Unknown Item',
+          imageUrl: data?.imageUrl || null,
           rateCount,
           mehCount,
           hateCount,
@@ -482,12 +436,12 @@ export async function getCategories(): Promise<Category[]> {
       const data = doc.data();
       return {
         id: doc.id,
-        name: data.name || 'Unknown Category',
+        name: data?.name || 'Unknown Category',
         slug: doc.id,
-        description: data.description || 'No description available.',
-        itemCount: data.itemCount || 0,
-        imageUrl: data.imageUrl || null,
-        icon: data.icon || '🔍' // Default icon if none is specified
+        description: data?.description || 'No description available.',
+        itemCount: data?.itemCount || 0,
+        imageUrl: data?.imageUrl || null,
+        icon: data?.icon || '🔍' // Default icon if none is specified
       };
     });
     
@@ -499,12 +453,12 @@ export async function getCategories(): Promise<Category[]> {
 }
 
 // Get featured categories (with highest item counts)
-export async function getFeaturedCategories(limit: number = 4): Promise<Category[]> {
+export async function getFeaturedCategories(limitNum: number = 4): Promise<Category[]> {
   try {
     const categoriesQuery = query(
       collection(db, 'categories'),
       orderBy('itemCount', 'desc'),
-      limit(limit)
+      firestoreLimit(limitNum)
     );
     
     const categoriesSnapshot = await getDocs(categoriesQuery);
@@ -517,12 +471,12 @@ export async function getFeaturedCategories(limit: number = 4): Promise<Category
       const data = doc.data();
       return {
         id: doc.id,
-        name: data.name || 'Unknown Category',
+        name: data?.name || 'Unknown Category',
         slug: doc.id,
-        description: data.description || 'No description available.',
-        itemCount: data.itemCount || 0,
-        imageUrl: data.imageUrl || null,
-        icon: data.icon || '🔍'
+        description: data?.description || 'No description available.',
+        itemCount: data?.itemCount || 0,
+        imageUrl: data?.imageUrl || null,
+        icon: data?.icon || '🔍'
       };
     });
     
@@ -546,12 +500,12 @@ export async function getCategoryById(categoryId: string): Promise<Category | nu
     const data = categoryDoc.data();
     return {
       id: categoryDoc.id,
-      name: data.name || 'Unknown Category',
+      name: data?.name || 'Unknown Category',
       slug: categoryDoc.id,
-      description: data.description || 'No description available.',
-      itemCount: data.itemCount || 0,
-      imageUrl: data.imageUrl || null,
-      icon: data.icon || '🔍'
+      description: data?.description || 'No description available.',
+      itemCount: data?.itemCount || 0,
+      imageUrl: data?.imageUrl || null,
+      icon: data?.icon || '🔍'
     };
   } catch (error) {
     console.error('Error fetching category:', error);
@@ -595,38 +549,20 @@ export async function getItemsByCategory(
         collection(db, 'items'),
         ...queryConstraints,
         startAfter(lastDoc),
-        limit(itemsPerPage)
+        firestoreLimit(itemsPerPage)
       );
     } else {
       itemsQuery = query(
         collection(db, 'items'),
         ...queryConstraints,
-        limit(itemsPerPage)
+        firestoreLimit(itemsPerPage)
       );
     }
     
     const itemsSnapshot = await getDocs(itemsQuery);
     
     const items = itemsSnapshot.docs.map(doc => {
-      const data = doc.data();
-      const item: Item = {
-        id: doc.id,
-        name: data.name || 'Unnamed Item',
-        description: data.description || 'No description available.',
-        rateCount: data.rateCount || 0,
-        mehCount: data.mehCount || 0,
-        hateCount: data.hateCount || 0,
-        category: data.category || 'uncategorized',
-        dateAdded: data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-        lastUpdated: data.lastUpdated?.toDate()?.toISOString() || data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-        imageUrl: data.imageUrl || null,
-        commentCount: data.commentCount || 0,
-        comments: [],
-        creatorId: data.creatorId || null,
-        creatorName: data.creatorName || 'Unknown User',
-        tags: data.tags || []
-      };
-      
+      const item = extractItemData(doc);
       return calculateVotePercentages(item);
     });
     
@@ -646,12 +582,12 @@ export async function getItemsByCategory(
 }
 
 // Get user vote history
-export async function getUserVotes(userId: string, limit: number = 20): Promise<UserVote[]> {
+export async function getUserVotes(userId: string, limitNum: number = 20): Promise<UserVote[]> {
   try {
     const votesQuery = query(
       collection(db, 'users', userId, 'votes'),
       orderBy('timestamp', 'desc'),
-      limit(limit)
+      firestoreLimit(limitNum)
     );
     
     const votesSnapshot = await getDocs(votesQuery);
@@ -660,10 +596,10 @@ export async function getUserVotes(userId: string, limit: number = 20): Promise<
       const data = doc.data();
       return {
         itemId: doc.id,
-        itemName: data.itemName || 'Unknown Item',
-        vote: data.voteType as VoteType,
-        timestamp: data.timestamp?.toDate() || new Date(),
-        category: data.category
+        itemName: data?.itemName || 'Unknown Item',
+        vote: data?.voteType as VoteType,
+        timestamp: data?.timestamp?.toDate() || new Date(),
+        category: data?.category
       };
     });
     
@@ -693,7 +629,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
     let hateCount = 0;
     
     userVotesSnapshot.forEach(doc => {
-      const vote = doc.data().voteType;
+      const vote = doc.data()?.voteType;
       if (vote === 'rate') rateCount++;
       else if (vote === 'meh') mehCount++;
       else if (vote === 'hate') hateCount++;
@@ -703,19 +639,19 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
     
     return {
       id: userId,
-      displayName: data.displayName || 'Anonymous User',
-      email: data.email || '',
-      photoURL: data.photoURL || null,
-      bio: data.bio || null,
-      joinDate: data.joinDate?.toDate()?.toISOString() || new Date().toISOString(),
+      displayName: data?.displayName || 'Anonymous User',
+      email: data?.email || '',
+      photoURL: data?.photoURL || null,
+      bio: data?.bio || null,
+      joinDate: data?.joinDate?.toDate()?.toISOString() || new Date().toISOString(),
       voteCount: {
         total: totalVotes,
         rate: rateCount,
         meh: mehCount,
         hate: hateCount
       },
-      commentCount: data.commentCount || 0,
-      lastActive: data.lastActive?.toDate()?.toISOString() || new Date().toISOString()
+      commentCount: data?.commentCount || 0,
+      lastActive: data?.lastActive?.toDate()?.toISOString() || new Date().toISOString()
     };
   } catch (error) {
     console.error('Error fetching user profile:', error);
@@ -743,7 +679,7 @@ export async function searchItems(
       where('name_lower', '>=', searchTerm),
       where('name_lower', '<=', searchTermEnd),
       orderBy('name_lower'),
-      limit(limitNum)
+      firestoreLimit(limitNum)
     );
     
     const itemsSnapshot = await getDocs(itemsQuery);
@@ -752,19 +688,19 @@ export async function searchItems(
       const data = doc.data();
       const item: Item = {
         id: doc.id,
-        name: data.name || 'Unnamed Item',
-        description: data.description || 'No description available.',
-        rateCount: data.rateCount || 0,
-        mehCount: data.mehCount || 0,
-        hateCount: data.hateCount || 0,
-        category: data.category || 'uncategorized',
-        dateAdded: data.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
-        imageUrl: data.imageUrl || null,
-        commentCount: data.commentCount || 0,
+        name: data?.name || 'Unnamed Item',
+        description: data?.description || 'No description available.',
+        rateCount: data?.rateCount || 0,
+        mehCount: data?.mehCount || 0,
+        hateCount: data?.hateCount || 0,
+        category: data?.category || 'uncategorized',
+        dateAdded: data?.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
+        imageUrl: data?.imageUrl || null,
+        commentCount: data?.commentCount || 0,
         comments: [],
-        creatorId: data.creatorId || null,
-        creatorName: data.creatorName || 'Unknown User',
-        tags: data.tags || []
+        creatorId: data?.creatorId || null,
+        creatorName: data?.creatorName || 'Unknown User',
+        tags: data?.tags || []
       };
       return calculateVotePercentages(item);
     });

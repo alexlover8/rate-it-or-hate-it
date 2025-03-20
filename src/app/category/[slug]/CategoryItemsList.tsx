@@ -4,6 +4,10 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useState, useEffect, useCallback } from 'react';
 import { Item } from '@/lib/data';
+
+type ItemWithDate = Item & {
+  createdAt: string;
+};
 import { ThumbsUp, ThumbsDown, Meh, MessageSquare, RefreshCw, Filter, ArrowUpDown } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 
@@ -17,12 +21,18 @@ type CategoryItemsListProps = {
 };
 
 export default function CategoryItemsList({ 
-  initialItems, 
-  categoryId, 
+  initialItems,
+  categoryId,
   categoryName 
 }: CategoryItemsListProps) {
-  const [items, setItems] = useState<Item[]>(initialItems);
-  const [filteredItems, setFilteredItems] = useState<Item[]>(initialItems);
+  // Convert initialItems to ItemWithDate, safely handling missing dateAdded
+  const itemsWithCreatedAt: ItemWithDate[] = initialItems.map(item => ({
+    ...item,
+    createdAt: item.dateAdded || item.lastUpdated || new Date().toISOString()
+  }));
+
+  const [items, setItems] = useState<ItemWithDate[]>(itemsWithCreatedAt);
+  const [filteredItems, setFilteredItems] = useState<ItemWithDate[]>(itemsWithCreatedAt);
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(initialItems.length >= 20);
   const [sortOption, setSortOption] = useState<SortOption>('popular');
@@ -147,7 +157,13 @@ export default function CategoryItemsList({
       const newItems = await response.json();
       
       if (newItems.length > 0) {
-        setItems(prevItems => [...prevItems, ...newItems]);
+        // Convert new items to ItemWithDate format
+        const newItemsWithCreatedAt: ItemWithDate[] = newItems.map((item: Item) => ({
+          ...item,
+          createdAt: item.dateAdded || item.lastUpdated || new Date().toISOString()
+        }));
+        
+        setItems(prevItems => [...prevItems, ...newItemsWithCreatedAt]);
         setHasMore(newItems.length >= 20);
       } else {
         setHasMore(false);
@@ -273,7 +289,7 @@ export default function CategoryItemsList({
                       : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
                   }`}
                 >
-                  Highly Rated (>60%)
+                  Highly Rated ({'>'}60%)
                 </button>
                 <button 
                   onClick={() => handleFilterChange('mixed')}
@@ -283,7 +299,7 @@ export default function CategoryItemsList({
                       : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
                   }`}
                 >
-                  Mixed Reviews (Meh >40%)
+                  Mixed Reviews (Meh {'>'}40%)
                 </button>
                 <button 
                   onClick={() => handleFilterChange('low-rated')}
@@ -293,7 +309,7 @@ export default function CategoryItemsList({
                       : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
                   }`}
                 >
-                  Strongly Disliked (>60%)
+                  Strongly Disliked ({'>'}60%)
                 </button>
               </div>
             </div>

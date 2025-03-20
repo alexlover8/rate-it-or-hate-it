@@ -1,6 +1,6 @@
-import type { Config } from "tailwindcss";
-
-export default {
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  darkMode: 'class', // Enable dark mode via a class (e.g., adding 'dark' to <html>)
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -9,12 +9,13 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: "var(--background)", // CSS variable for background
-        foreground: "var(--foreground)", // CSS variable for foreground
-        primary: "#1E90FF", // Vibrant blue for buttons
-        secondary: "#F5F5F5", // Light gray background
-      },
+        primary: {
+          DEFAULT: '#your-primary-color', // Replace with your desired primary color
+          light: '#lighter-shade-of-primary',
+          dark: '#darker-shade-of-primary'
+        }
+      }
     },
   },
   plugins: [],
-} satisfies Config;
+}

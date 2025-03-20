@@ -8,7 +8,10 @@ import {
   onAuthStateChanged, 
   sendPasswordResetEmail,
   updateProfile,
-  User
+  User,
+  GoogleAuthProvider,
+  FacebookAuthProvider,
+  signInWithPopup
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
@@ -35,6 +38,8 @@ type AuthContextType = {
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<any>;
   signUp: (email: string, password: string, displayName: string) => Promise<any>;
+  signInWithGoogle: () => Promise<any>;
+  signInWithFacebook: () => Promise<any>;
   logOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateUserProfile: (data: Partial<UserProfile>) => Promise<void>;
@@ -48,6 +53,8 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   signIn: async () => ({}),
   signUp: async () => ({}),
+  signInWithGoogle: async () => ({}),
+  signInWithFacebook: async () => ({}),
   logOut: async () => {},
   resetPassword: async () => {},
   updateUserProfile: async () => {},
@@ -199,6 +206,128 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Sign in with Google
+  const signInWithGoogle = async () => {
+    if (!isClient) {
+      throw new Error("Authentication is not available on the server");
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      
+      // Check if this is a new user
+      const isNewUser = result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
+      
+      // If new user, create a profile in Firestore
+      if (isNewUser) {
+        const userRef = doc(db, 'users', result.user.uid);
+        await setDoc(userRef, {
+          displayName: result.user.displayName || 'User',
+          email: result.user.email,
+          photoURL: result.user.photoURL,
+          bio: null,
+          joinDate: new Date(),
+          voteCount: {
+            total: 0,
+            rate: 0,
+            meh: 0,
+            hate: 0
+          },
+          lastActive: serverTimestamp(),
+          provider: 'google'
+        });
+      } else {
+        // Update last active timestamp
+        const userRef = doc(db, 'users', result.user.uid);
+        await updateDoc(userRef, {
+          lastActive: serverTimestamp()
+        });
+      }
+      
+      return result;
+    } catch (err: any) {
+      console.error('Error signing in with Google:', err);
+      
+      if (err.code === 'auth/popup-closed-by-user') {
+        setError('Sign-in cancelled');
+      } else if (err.code === 'auth/popup-blocked') {
+        setError('Sign-in popup was blocked by your browser');
+      } else {
+        setError(err.message || 'Failed to sign in with Google');
+      }
+      
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Sign in with Facebook
+  const signInWithFacebook = async () => {
+    if (!isClient) {
+      throw new Error("Authentication is not available on the server");
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const provider = new FacebookAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      
+      // Check if this is a new user
+      const isNewUser = result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
+      
+      // If new user, create a profile in Firestore
+      if (isNewUser) {
+        const userRef = doc(db, 'users', result.user.uid);
+        await setDoc(userRef, {
+          displayName: result.user.displayName || 'User',
+          email: result.user.email,
+          photoURL: result.user.photoURL,
+          bio: null,
+          joinDate: new Date(),
+          voteCount: {
+            total: 0,
+            rate: 0,
+            meh: 0,
+            hate: 0
+          },
+          lastActive: serverTimestamp(),
+          provider: 'facebook'
+        });
+      } else {
+        // Update last active timestamp
+        const userRef = doc(db, 'users', result.user.uid);
+        await updateDoc(userRef, {
+          lastActive: serverTimestamp()
+        });
+      }
+      
+      return result;
+    } catch (err: any) {
+      console.error('Error signing in with Facebook:', err);
+      
+      if (err.code === 'auth/popup-closed-by-user') {
+        setError('Sign-in cancelled');
+      } else if (err.code === 'auth/popup-blocked') {
+        setError('Sign-in popup was blocked by your browser');
+      } else if (err.code === 'auth/account-exists-with-different-credential') {
+        setError('An account already exists with the same email address but different sign-in credentials');
+      } else {
+        setError(err.message || 'Failed to sign in with Facebook');
+      }
+      
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Log out function
   const logOut = async () => {
     if (!isClient) {
@@ -297,6 +426,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
     signIn,
     signUp,
+    signInWithGoogle,
+    signInWithFacebook,
     logOut,
     resetPassword,
     updateUserProfile

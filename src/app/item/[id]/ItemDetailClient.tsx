@@ -3,13 +3,21 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Share2, Bookmark, ArrowLeft, ThumbsUp, Meh, ThumbsDown } from 'lucide-react';
+import {
+  Share2,
+  Bookmark,
+  ArrowLeft,
+  ThumbsUp,
+  Meh,
+  ThumbsDown
+} from 'lucide-react';
 import VotingButtons from '@/components/VotingButtons';
 import CommentSection from '@/components/CommentSection';
 import SentimentAnalysis from '@/components/SentimentAnalysis';
 import { useToast } from '@/components/ui/toast';
+import { useAuth } from '@/lib/auth';
 
-type RelatedItem = {
+export type RelatedItem = {
   id: string;
   name: string;
   imageUrl: string | null;
@@ -18,7 +26,7 @@ type RelatedItem = {
   hatePercentage: number;
 };
 
-type Comment = {
+export type Comment = {
   id: string;
   text: string;
   userId: string;
@@ -26,7 +34,7 @@ type Comment = {
   timestamp: Date;
 };
 
-type ItemProps = {
+export type ItemProps = {
   item: {
     id: string;
     name: string;
@@ -48,40 +56,33 @@ type ItemProps = {
   hatePercentage: number;
 };
 
-export default function ItemDetailClient({ 
-  item, 
-  relatedItems, 
-  ratePercentage, 
+export default function ItemDetailClient({
+  item,
+  relatedItems,
+  ratePercentage,
   mehPercentage,
-  hatePercentage 
+  hatePercentage
 }: ItemProps) {
+  // Retrieve the current authenticated user from your auth hook
+  const { user } = useAuth();
   const [isSharing, setIsSharing] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
-  const [isToastVisible, setIsToastVisible] = useState(false);
-  const [toastMessage, setToastMessage] = useState('');
-  const [loading, setLoading] = useState(false);
   const { toast } = useToast();
-  
+
   // Check if the item is bookmarked on initial load
   useEffect(() => {
-    const checkBookmarkStatus = () => {
-      try {
-        const bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');
-        setIsBookmarked(bookmarks.includes(item.id));
-      } catch (error) {
-        console.error('Error checking bookmark status:', error);
-      }
-    };
-    
-    checkBookmarkStatus();
+    try {
+      const bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');
+      setIsBookmarked(bookmarks.includes(item.id));
+    } catch (error) {
+      console.error('Error checking bookmark status:', error);
+    }
   }, [item.id]);
-  
+
   // Handle sharing functionality
   const handleShare = async () => {
     setIsSharing(true);
-    
     try {
-      // Check if Web Share API is available
       if (navigator.share) {
         await navigator.share({
           title: item.name,
@@ -90,35 +91,31 @@ export default function ItemDetailClient({
         });
         toast({
           title: "Shared successfully",
-          variant: "success",
+          type: "success",
         });
       } else {
-        // Fallback: Copy to clipboard
         await navigator.clipboard.writeText(window.location.href);
         toast({
           title: "Link copied to clipboard!",
-          variant: "success",
+          type: "success",
         });
       }
     } catch (error) {
-      if (error instanceof Error && error.name !== 'AbortError') {
-        console.error('Error sharing:', error);
-        toast({
-          title: "Failed to share",
-          description: "Please try again later",
-          variant: "error",
-        });
-      }
+      console.error('Error sharing:', error);
+      toast({
+        title: "Failed to share",
+        description: "Please try again later",
+        type: "error",
+      });
     } finally {
       setIsSharing(false);
     }
   };
-  
+
   // Handle bookmark functionality
   const handleBookmark = () => {
     try {
       const bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');
-      
       if (isBookmarked) {
         // Remove from bookmarks
         const updatedBookmarks = bookmarks.filter((id: string) => id !== item.id);
@@ -126,7 +123,7 @@ export default function ItemDetailClient({
         setIsBookmarked(false);
         toast({
           title: "Removed from bookmarks",
-          variant: "default",
+          type: "default",
         });
       } else {
         // Add to bookmarks
@@ -135,7 +132,7 @@ export default function ItemDetailClient({
         setIsBookmarked(true);
         toast({
           title: "Added to bookmarks",
-          variant: "success",
+          type: "success",
         });
       }
     } catch (error) {
@@ -143,7 +140,7 @@ export default function ItemDetailClient({
       toast({
         title: "Couldn't update bookmarks",
         description: "Please try again later",
-        variant: "error",
+        type: "error",
       });
     }
   };
@@ -154,27 +151,27 @@ export default function ItemDetailClient({
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="container mx-auto px-4 py-6 max-w-5xl">
         {/* Back navigation */}
-        <Link 
-          href={`/category/${item.category}`} 
+        <Link
+          href={`/category/${item.category}`}
           className="inline-flex items-center text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 mb-6 transition-colors"
         >
           <ArrowLeft size={16} className="mr-1" />
           <span>Back to {item.category}</span>
         </Link>
-        
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left column - Image and details */}
+          {/* Left column: Image and details */}
           <div className="lg:col-span-2">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden transition-all hover:shadow-lg">
               {/* Item image */}
               <div className="relative h-64 md:h-96 bg-gray-200 dark:bg-gray-700">
                 {item.imageUrl ? (
-                  <Image 
+                  <Image
                     src={item.imageUrl}
                     alt={item.name}
                     fill
                     sizes="(max-width: 768px) 100vw, 66vw"
-                    className="object-contain" 
+                    className="object-contain"
                     priority
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
@@ -187,61 +184,69 @@ export default function ItemDetailClient({
                   </div>
                 )}
               </div>
-              
+
               {/* Item details */}
               <div className="p-6">
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-1">{item.name}</h1>
+                    <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                      {item.name}
+                    </h1>
                     <div className="flex items-center space-x-2">
-                      <Link 
+                      <Link
                         href={`/category/${item.category}`}
                         className="text-sm text-blue-500 dark:text-blue-400 hover:underline"
                       >
                         {item.category}
                       </Link>
                       <span className="text-gray-400">•</span>
-                      <span className="text-sm text-gray-500 dark:text-gray-400">Added by {item.creatorName}</span>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        Added by {item.creatorName}
+                      </span>
                     </div>
                   </div>
                   <div className="flex space-x-1">
-                    <button 
-                      className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-blue-100 hover:text-blue-500 dark:hover:bg-blue-900/30 dark:hover:text-blue-400 transition-colors"
-                      aria-label="Share"
+                    <button
                       type="button"
                       onClick={handleShare}
                       disabled={isSharing}
+                      className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-blue-100 hover:text-blue-500 dark:hover:bg-blue-900/30 dark:hover:text-blue-400 transition-colors"
+                      aria-label="Share"
                     >
                       <Share2 size={20} className={isSharing ? 'animate-pulse' : ''} />
                     </button>
-                    <button 
+                    <button
+                      type="button"
+                      onClick={handleBookmark}
                       className={`p-2 rounded-full transition-colors ${
-                        isBookmarked 
-                          ? 'bg-blue-100 text-blue-500 dark:bg-blue-900/30 dark:text-blue-400' 
+                        isBookmarked
+                          ? 'bg-blue-100 text-blue-500 dark:bg-blue-900/30 dark:text-blue-400'
                           : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-blue-100 hover:text-blue-500 dark:hover:bg-blue-900/30 dark:hover:text-blue-400'
                       }`}
                       aria-label={isBookmarked ? 'Remove Bookmark' : 'Bookmark'}
-                      type="button"
-                      onClick={handleBookmark}
                     >
                       <Bookmark size={20} />
                     </button>
                   </div>
                 </div>
-                
-                <p className="text-gray-700 dark:text-gray-300 mb-6 leading-relaxed">{item.description}</p>
-                
+
+                <p className="text-gray-700 dark:text-gray-300 mb-6 leading-relaxed">
+                  {item.description}
+                </p>
+
                 {/* Voting section */}
                 <div className="mb-8">
-                  <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">What do you think?</h2>
-                  <VotingButtons 
-                    itemId={item.id} 
+                  <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+                    What do you think?
+                  </h2>
+                  <VotingButtons
+                    itemId={item.id}
                     initialRateCount={item.rateCount}
                     initialMehCount={item.mehCount}
                     initialHateCount={item.hateCount}
                   />
                 </div>
-                
+
                 {/* Vote results */}
                 <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-5 mb-6">
                   <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white flex items-center">
@@ -266,7 +271,7 @@ export default function ItemDetailClient({
                       </div>
                       <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{item.rateCount} votes</p>
                     </div>
-                    
+
                     <div className="flex-1">
                       <div className="flex justify-between mb-1">
                         <p className="flex items-center text-yellow-600 dark:text-yellow-400 font-medium">
@@ -282,7 +287,7 @@ export default function ItemDetailClient({
                       </div>
                       <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{item.mehCount} votes</p>
                     </div>
-                    
+
                     <div className="flex-1">
                       <div className="flex justify-between mb-1">
                         <p className="flex items-center text-red-600 dark:text-red-400 font-medium">
@@ -300,39 +305,54 @@ export default function ItemDetailClient({
                     </div>
                   </div>
                 </div>
-                
+
                 {/* Date added info */}
                 <div className="text-sm text-gray-500 dark:text-gray-400">
-                  Added on {new Date(item.dateAdded).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
+                  Added on{" "}
+                  {new Date(item.dateAdded).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric"
                   })}
                 </div>
+
+                {/* Edit functionality: only show if the current user is the creator */}
+                {user && user.uid === item.creatorId && (
+                  <div className="mt-4">
+                    <Link
+                      href={`/item/${item.id}/edit`}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+                    >
+                      Edit Item
+                    </Link>
+                  </div>
+                )}
               </div>
             </div>
-            
+
             {/* Comment analysis section */}
             <div className="mt-8">
               <SentimentAnalysis itemId={item.id} comments={item.comments || []} />
             </div>
-            
+
             {/* Comments section */}
             <div className="mt-8">
               <CommentSection itemId={item.id} initialCommentCount={item.commentCount || 0} />
             </div>
           </div>
-          
+
           {/* Right column - Related items and trending */}
           <div className="space-y-6">
             {/* Related items section */}
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 transition-all hover:shadow-lg">
               <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Similar Items</h3>
-              
               {relatedItems && relatedItems.length > 0 ? (
                 <div className="space-y-4">
-                  {relatedItems.map(related => (
-                    <div key={related.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors">
+                  {relatedItems.map((related) => (
+                    <div
+                      key={related.id}
+                      className="hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                    >
                       <Link href={`/item/${related.id}`} className="flex items-center p-2">
                         <div className="relative w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden">
                           {related.imageUrl ? (
@@ -350,19 +370,21 @@ export default function ItemDetailClient({
                           )}
                         </div>
                         <div className="ml-3 flex-1">
-                          <p className="font-medium text-gray-900 dark:text-white text-sm">{related.name}</p>
+                          <p className="font-medium text-gray-900 dark:text-white text-sm">
+                            {related.name}
+                          </p>
                           <div className="flex items-center mt-1">
                             <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden flex">
-                              <div 
-                                className="h-1.5 bg-blue-500" 
+                              <div
+                                className="h-1.5 bg-blue-500"
                                 style={{ width: `${related.ratePercentage}%` }}
                               ></div>
-                              <div 
-                                className="h-1.5 bg-yellow-500" 
+                              <div
+                                className="h-1.5 bg-yellow-500"
                                 style={{ width: `${related.mehPercentage}%` }}
                               ></div>
-                              <div 
-                                className="h-1.5 bg-red-500" 
+                              <div
+                                className="h-1.5 bg-red-500"
                                 style={{ width: `${related.hatePercentage}%` }}
                               ></div>
                             </div>
@@ -371,8 +393,7 @@ export default function ItemDetailClient({
                       </Link>
                     </div>
                   ))}
-                  
-                  <Link 
+                  <Link
                     href={`/category/${item.category}`}
                     className="mt-4 inline-block w-full text-center px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
                   >
@@ -382,7 +403,7 @@ export default function ItemDetailClient({
               ) : (
                 <div className="text-center py-8 px-4">
                   <p className="text-gray-500 dark:text-gray-400 mb-4">No similar items found</p>
-                  <Link 
+                  <Link
                     href="/add-item"
                     className="inline-block px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium"
                   >
@@ -391,55 +412,30 @@ export default function ItemDetailClient({
                 </div>
               )}
             </div>
-            
-            {/* Trending widget - Using real data from Firestore */}
+
+            {/* Trending widget */}
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 transition-all hover:shadow-lg">
               <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Trending Now</h3>
               <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">What people are rating this week</p>
-              
               <div className="space-y-3">
-                {loading ? (
-                  <>
-                    <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>
-                    <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>
-                    <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>
-                  </>
-                ) : relatedItems && relatedItems.length > 0 ? (
-                  relatedItems.slice(0, 3).map(item => (
-                    <Link 
-                      key={item.id} 
-                      href={`/item/${item.id}`}
-                      className="block p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                    >
-                      <div className="flex justify-between items-center">
-                        <p className="font-medium text-gray-900 dark:text-white text-sm truncate">{item.name}</p>
-                        <div className="flex space-x-2">
-                          <span className="inline-flex items-center text-xs text-blue-600 dark:text-blue-400">
-                            <ThumbsUp size={12} className="mr-1" /> 
-                            {item.ratePercentage}%
-                          </span>
-                        </div>
-                      </div>
-                    </Link>
-                  ))
-                ) : (
-                  <p className="text-center text-gray-500 dark:text-gray-400 py-4">No trending items yet</p>
-                )}
+                {/* Replace "loading" with your loading state if applicable */}
+                <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>
+                <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>
+                <div className="h-12 bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse"></div>
               </div>
-              
-              <Link 
+              <Link
                 href="/"
                 className="mt-4 text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm block text-center"
               >
                 Explore trending items
               </Link>
             </div>
-            
-            {/* New widget: User Contribution */}
+
+            {/* User Contribution Widget */}
             <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl shadow-md p-6 text-white">
               <h3 className="text-lg font-semibold mb-4">Add Your Own Item</h3>
               <p className="text-blue-100 mb-4">Have a product you want others to rate? Add it to our platform!</p>
-              <Link 
+              <Link
                 href="/add-item"
                 className="block w-full text-center px-4 py-3 bg-white text-blue-600 rounded-lg hover:bg-blue-50 transition-colors font-medium"
               >

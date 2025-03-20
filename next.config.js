@@ -1,9 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  
-  // Environment variables
+
+  // Define your site URL
   env: {
+    NEXT_PUBLIC_SITE_URL: 'https://rateithateit.com',
+    
+    // Firebase Environment Variables
     NEXT_PUBLIC_FIREBASE_API_KEY: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
@@ -11,8 +14,11 @@ const nextConfig = {
     NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
     NEXT_PUBLIC_FIREBASE_APP_ID: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
     NEXT_PUBLIC_RECAPTCHA_SITE_KEY: process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY,
+
+    // Cloudflare R2 Configuration
+    NEXT_PUBLIC_R2_PUBLIC_URL: process.env.NEXT_PUBLIC_R2_PUBLIC_URL,
   },
-  
+
   // Image configuration
   images: {
     domains: [
@@ -22,6 +28,7 @@ const nextConfig = {
       'placehold.co',
       'placeholder.com',
       'via.placeholder.com',
+      'rateithateit.com', // <-- ADD YOUR DOMAIN HERE
       process.env.NEXT_PUBLIC_R2_PUBLIC_URL?.replace(/^https?:\/\//, '') || '',
     ],
     remotePatterns: [
@@ -32,11 +39,9 @@ const nextConfig = {
     ],
   },
 
-  // Updated webpack configuration for modern Firebase
+  // Webpack modifications for Firebase compatibility
   webpack: (config, { isServer }) => {
-    // Only modify client-side webpack config
     if (!isServer) {
-      // Provide fallbacks for Node.js core modules
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
@@ -44,17 +49,11 @@ const nextConfig = {
         tls: false,
         crypto: false,
       };
-      
-      // Remove the direct aliases as they may be causing issues
-      // with the newer Firebase versions
     }
-    
     return config;
   },
-  
-  // Experimental settings to help with Firebase compatibility
+
   experimental: {
-    // This helps with server components importing Firebase
     serverComponentsExternalPackages: ['firebase'],
   },
 };

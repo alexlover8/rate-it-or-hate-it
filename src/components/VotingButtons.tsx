@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { Heart, HeartOff, Meh, AlertCircle, Info, Check } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useVoteManager } from '@/lib/voteManager';
+import { useAuth } from '@/lib/auth';
+import LoginPromptModal from './LoginPromptModal';
 
 type VotingButtonsProps = {
   itemId: string;
@@ -43,6 +45,11 @@ export default function VotingButtons({
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [pendingVoteType, setPendingVoteType] = useState<'rate' | 'meh' | 'hate' | null>(null);
+
+  // Get auth state
+  const { user } = useAuth();
 
   // Import voteManager functions and state
   const { recordVote, getVoteStats } = useVoteManager();
@@ -82,6 +89,14 @@ export default function VotingButtons({
     // Prevent duplicate voting or if already submitting
     if (userVote === voteType || isSubmitting) return;
 
+    // Check if user is authenticated
+    if (!user) {
+      // Save the pending vote type and show login modal
+      setPendingVoteType(voteType);
+      setShowLoginModal(true);
+      return;
+    }
+
     setIsSubmitting(true);
 
     const result = await recordVote(itemId, voteType);
@@ -100,6 +115,12 @@ export default function VotingButtons({
     }
 
     setIsSubmitting(false);
+  };
+
+  // Close login modal
+  const handleCloseLoginModal = () => {
+    setShowLoginModal(false);
+    setPendingVoteType(null);
   };
 
   // Calculate total votes and percentages
@@ -308,6 +329,14 @@ export default function VotingButtons({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Login Modal */}
+      <LoginPromptModal
+        isOpen={showLoginModal}
+        onClose={handleCloseLoginModal}
+        actionType="vote"
+        returnUrl={window.location?.pathname}
+      />
     </div>
   );
 }

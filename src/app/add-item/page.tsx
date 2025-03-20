@@ -12,11 +12,12 @@ import {
   ThumbsUp,
   ThumbsDown,
   Meh,
+  Link as LinkIcon,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { uploadToR2 } from '@/lib/r2';
+import { generateSecureFilename } from '@/lib/r2'; // Import only the helper function
 import { v4 as uuidv4 } from 'uuid';
 import Link from 'next/link';
 import { useToast } from '@/components/ui/toast';
@@ -52,6 +53,10 @@ function AddItemForm() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [previewMode, setPreviewMode] = useState(false);
+  
+  // New state variables for image source handling
+  const [imageSource, setImageSource] = useState('upload'); // 'upload' or 'url'
+  const [imageUrl, setImageUrl] = useState('');
 
   // Handle image selection
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -88,6 +93,11 @@ function AddItemForm() {
       setImagePreview(reader.result as string);
     };
     reader.readAsDataURL(file);
+  };
+
+  // Handle image URL change
+  const handleImageUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setImageUrl(e.target.value);
   };
 
   // Handle drag and drop
@@ -196,12 +206,33 @@ function AddItemForm() {
     try {
       // Generate a unique ID for the item
       const itemId = uuidv4();
-      let imageUrl = null;
+      let finalImageUrl = null;
 
-      // Upload image if provided
-      if (imageFile) {
-        const filePath = `items/${itemId}/${imageFile.name}`;
-        imageUrl = await uploadToR2(imageFile, filePath);
+      // Handle image based on source
+      if (imageSource === 'upload' && imageFile) {
+        const secureFilename = generateSecureFilename(imageFile.name, `items/${itemId}/`);
+        
+        // Create a FormData object to send the file to our API route
+        const formData = new FormData();
+        formData.append('file', imageFile);
+        formData.append('path', secureFilename);
+        
+        // Send the request to our API route
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Upload failed');
+        }
+        
+        const data = await response.json();
+        finalImageUrl = data.imageUrl;
+      } else if (imageSource === 'url' && imageUrl) {
+        // For external URLs, use the URL directly
+        finalImageUrl = imageUrl;
       }
 
       // Create the item document in Firestore
@@ -211,7 +242,8 @@ function AddItemForm() {
         name_lower: name.toLowerCase(), // Lowercase field for case-insensitive search
         description,
         category,
-        imageUrl,
+        imageUrl: finalImageUrl,
+        imageSource: imageSource, // Track the source of the image
         creatorId: user.uid,
         creatorName: user.displayName || 'Anonymous User',
         rateCount: 0,
@@ -302,8 +334,17 @@ function AddItemForm() {
               <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
                 {/* Image */}
                 <div className="relative h-64 bg-gray-100 dark:bg-gray-700">
-                  {imagePreview ? (
+                  {imageSource === 'upload' && imagePreview ? (
                     <img src={imagePreview} alt={name} className="w-full h-full object-contain" />
+                  ) : imageSource === 'url' && imageUrl ? (
+                    <img 
+                      src={imageUrl} 
+                      alt={name} 
+                      className="w-full h-full object-contain"
+                      onError={(e) => {
+                        e.currentTarget.src = 'https://via.placeholder.com/400x300?text=Invalid+Image+URL';
+                      }}
+                    />
                   ) : (
                     <div className="flex items-center justify-center h-full">
                       <p className="text-gray-400 dark:text-gray-500">No image provided</p>
@@ -478,65 +519,133 @@ function AddItemForm() {
               </p>
             </div>
 
-            {/* Image Upload */}
+            {/* Image Source Selection */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Image (Optional)
+                Image Source
               </label>
-              <div 
-                className="flex items-center justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors cursor-pointer"
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {imagePreview ? (
-                  <div className="relative w-full h-60">
+              <div className="flex space-x-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setImageSource('upload')}
+                  className={`px-3 py-1.5 rounded text-sm ${
+                    imageSource === 'upload' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
+                  }`}
+                >
+                  <Upload className="h-4 w-4 inline mr-1" />
+                  Upload Image
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageSource('url')}
+                  className={`px-3 py-1.5 rounded text-sm ${
+                    imageSource === 'url' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
+                  }`}
+                >
+                  <LinkIcon className="h-4 w-4 inline mr-1" />
+                  Image URL
+                </button>
+              </div>
+            </div>
+
+            {/* Conditional Image Input */}
+            {imageSource === 'upload' ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Image Upload (Optional)
+                </label>
+                <div 
+                  className="flex items-center justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors cursor-pointer"
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {imagePreview ? (
+                    <div className="relative w-full h-60">
+                      <img
+                        src={imagePreview}
+                        alt="Preview"
+                        className="w-full h-full object-contain"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setImageFile(null);
+                          setImagePreview(null);
+                          if (fileInputRef.current) {
+                            fileInputRef.current.value = '';
+                          }
+                        }}
+                        className="absolute top-2 right-2 bg-white dark:bg-gray-800 rounded-full p-1.5 shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        <X className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1 text-center">
+                      <Upload className="mx-auto h-12 w-12 text-gray-400" />
+                      <div className="flex text-sm text-gray-600 dark:text-gray-400">
+                        <label
+                          htmlFor="image-upload"
+                          className="relative cursor-pointer font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 focus-within:outline-none"
+                        >
+                          <span>Upload an image</span>
+                          <input
+                            id="image-upload"
+                            name="image-upload"
+                            type="file"
+                            className="sr-only"
+                            accept="image/*"
+                            ref={fileInputRef}
+                            onChange={handleImageChange}
+                          />
+                        </label>
+                        <p className="pl-1">or drag and drop</p>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">PNG, JPG, GIF up to 5MB</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="image-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Image URL (Optional)
+                </label>
+                <input
+                  type="url"
+                  id="image-url"
+                  value={imageUrl}
+                  onChange={handleImageUrlChange}
+                  placeholder="https://example.com/image.jpg"
+                  className="block w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white"
+                />
+                {imageUrl && (
+                  <div className="mt-3 relative border rounded-lg overflow-hidden">
                     <img
-                      src={imagePreview}
+                      src={imageUrl}
                       alt="Preview"
-                      className="w-full h-full object-contain"
+                      className="w-full h-60 object-contain"
+                      onError={(e) => {
+                        e.currentTarget.src = 'https://via.placeholder.com/400x300?text=Invalid+Image+URL';
+                      }}
                     />
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setImageFile(null);
-                        setImagePreview(null);
-                        if (fileInputRef.current) {
-                          fileInputRef.current.value = '';
-                        }
-                      }}
+                      onClick={() => setImageUrl('')}
                       className="absolute top-2 right-2 bg-white dark:bg-gray-800 rounded-full p-1.5 shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                     >
                       <X className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                     </button>
                   </div>
-                ) : (
-                  <div className="space-y-1 text-center">
-                    <Upload className="mx-auto h-12 w-12 text-gray-400" />
-                    <div className="flex text-sm text-gray-600 dark:text-gray-400">
-                      <label
-                        htmlFor="image-upload"
-                        className="relative cursor-pointer font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 focus-within:outline-none"
-                      >
-                        <span>Upload an image</span>
-                        <input
-                          id="image-upload"
-                          name="image-upload"
-                          type="file"
-                          className="sr-only"
-                          accept="image/*"
-                          ref={fileInputRef}
-                          onChange={handleImageChange}
-                        />
-                      </label>
-                      <p className="pl-1">or drag and drop</p>
-                    </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">PNG, JPG, GIF up to 5MB</p>
-                  </div>
                 )}
               </div>
-            </div>
+            )}
 
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-3 pt-2">

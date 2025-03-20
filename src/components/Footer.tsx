@@ -30,13 +30,15 @@ export default function Footer() {
     { name: 'Most Hated', href: '/most-hated' },
   ];
   
-  // Helper links
+  // Helper links updated to include new legal pages
   const helperLinks = [
     { name: 'About Us', href: '/about' },
-    { name: 'Privacy Policy', href: '/privacy' },
-    { name: 'Terms of Service', href: '/terms' },
+    { name: 'Privacy Policy', href: '/privacy-policy' },
+    { name: 'Terms of Service', href: '/terms-of-service' },
+    { name: 'Fair Use Policy', href: '/fair-use' },
+    { name: 'Cookie Policy', href: '/cookie-policy' },
+    { name: 'FAQ', href: '/faqs' },
     { name: 'Contact Us', href: '/contact' },
-    { name: 'FAQ', href: '/faq' },
   ];
   
   // Social media links
@@ -242,13 +244,13 @@ export default function Footer() {
           </p>
           
           <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
-            <Link href="/privacy" className="text-gray-500 text-xs hover:text-gray-400 transition-colors">
+            <Link href="/privacy-policy" className="text-gray-500 text-xs hover:text-gray-400 transition-colors">
               Privacy
             </Link>
-            <Link href="/terms" className="text-gray-500 text-xs hover:text-gray-400 transition-colors">
+            <Link href="/terms-of-service" className="text-gray-500 text-xs hover:text-gray-400 transition-colors">
               Terms
             </Link>
-            <Link href="/cookies" className="text-gray-500 text-xs hover:text-gray-400 transition-colors">
+            <Link href="/cookie-policy" className="text-gray-500 text-xs hover:text-gray-400 transition-colors">
               Cookies
             </Link>
             <Link href="/sitemap" className="text-gray-500 text-xs hover:text-gray-400 transition-colors">
