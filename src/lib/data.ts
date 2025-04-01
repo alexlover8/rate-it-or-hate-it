@@ -24,6 +24,7 @@ export type Item = {
   id: string;
   name: string;
   description: string;
+  userReview: string;
   rateCount: number;
   mehCount: number;
   hateCount: number;
@@ -74,8 +75,66 @@ export type Category = {
   itemCount?: number;
   imageUrl?: string | null;
   icon?: string;
+  parentCategory?: string | null; // Parent category ID for subcategories
+  subcategories?: string[]; // Array of subcategory IDs
+  style?: {
+    primaryColor: string;
+    secondaryColor?: string;
+    headerStyle?: 'default' | 'overlay' | 'minimal' | 'featured';
+    bannerImage?: string;
+    backgroundPattern?: string;
+  };
+  defaultLayout?: 'grid' | 'list';
+  specialFeatures?: string[];
+  featuredItems?: string[];
 };
 
+// Gamification user data structure
+export interface UserGamification {
+  points: number;
+  level: number;
+  badges: string[];
+  streakDays: number;
+  lastLogin: Date | null;
+  pointsHistory: PointActivity[];
+  badgeProgress: Record<string, number>; // Tracks progress toward badges
+  categoryActivity: Record<string, number>; // Tracks activity in different categories
+}
+
+// Point activity record
+export interface PointActivity {
+  action: 'vote' | 'comment' | 'item_submission' | 'comment_like' | 'login_streak' | 'community_contribution';
+  points: number;
+  timestamp: Date;
+  itemId?: string;
+  commentId?: string;
+  categoryId?: string;
+}
+
+// User level definition
+export interface UserLevel {
+  level: number;
+  name: string;
+  minPoints: number;
+  maxPoints: number;
+}
+
+// Badge definition
+export interface Badge {
+  id: string;
+  name: string;
+  description: string;
+  category: 'activity' | 'quality' | 'category_expert';
+  icon: string;
+  bgColor: string;
+  criteria: {
+    type: string;
+    threshold: number;
+    categoryId?: string;
+  };
+}
+
+// Updated UserProfile type with gamification
 export type UserProfile = {
   id: string;
   displayName: string;
@@ -91,7 +150,23 @@ export type UserProfile = {
   };
   commentCount: number;
   lastActive: string;
+  
+  // Add the gamification field
+  gamification?: UserGamification;
+  
+  // Add demographics field if you have it
+  demographics?: Demographics; 
 };
+
+// Demographics type (if you have this in your app)
+export interface Demographics {
+  profile_completion?: number;
+  age_range?: string;
+  gender?: string;
+  country?: string;
+  interests?: string[];
+  // Add other demographic fields you might have
+}
 
 export type UserVote = {
   itemId: string;
@@ -104,6 +179,25 @@ export type UserVote = {
 export type SortOption = 'newest' | 'oldest' | 'mostRated' | 'mostHated' | 'mostMeh' | 'mostVotes' | 'mostComments' | 'mostControversial';
 
 export type FilterOption = 'all' | 'rated' | 'meh' | 'hated';
+
+// You may already have a FirestoreTimestamp type, if not add this
+export interface FirestoreTimestamp {
+  toDate: () => Date;
+}
+
+// Level definitions (constants)
+export const USER_LEVELS: UserLevel[] = [
+  { level: 1, name: "Rookie Reviewer", minPoints: 0, maxPoints: 50 },
+  { level: 2, name: "Opinion Maker", minPoints: 51, maxPoints: 150 },
+  { level: 3, name: "Trend Spotter", minPoints: 151, maxPoints: 300 },
+  { level: 4, name: "Rating Guru", minPoints: 301, maxPoints: 500 },
+  { level: 5, name: "Sentiment Master", minPoints: 501, maxPoints: 1000 },
+  { level: 6, name: "Taste Authority", minPoints: 1001, maxPoints: 2000 },
+  { level: 7, name: "Rating Royalty", minPoints: 2001, maxPoints: 3500 },
+  { level: 8, name: "Feedback Sage", minPoints: 3501, maxPoints: 5000 },
+  { level: 9, name: "Opinion Oracle", minPoints: 5001, maxPoints: 7500 },
+  { level: 10, name: "MEH Mastermind", minPoints: 7501, maxPoints: Infinity }
+];
 
 // Calculate percentages and add them to the item
 function calculateVotePercentages(item: Item): Item {
@@ -651,7 +745,11 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
         hate: hateCount
       },
       commentCount: data?.commentCount || 0,
-      lastActive: data?.lastActive?.toDate()?.toISOString() || new Date().toISOString()
+      lastActive: data?.lastActive?.toDate()?.toISOString() || new Date().toISOString(),
+      // Include gamification data if it exists
+      gamification: data?.gamification as UserGamification | undefined,
+      // Include demographics if it exists
+      demographics: data?.demographics as Demographics | undefined
     };
   } catch (error) {
     console.error('Error fetching user profile:', error);

@@ -39,6 +39,7 @@ export type ItemProps = {
     id: string;
     name: string;
     description: string;
+    userReview?: string; // Added userReview field
     rateCount: number;
     mehCount: number;
     hateCount: number;
@@ -230,9 +231,21 @@ export default function ItemDetailClient({
                   </div>
                 </div>
 
-                <p className="text-gray-700 dark:text-gray-300 mb-6 leading-relaxed">
+                <p className="text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
                   {item.description}
                 </p>
+
+                {/* User Review Section - Add this code */}
+                {item.userReview && (
+                  <div className="mb-6 border-l-4 border-blue-400 dark:border-blue-600 pl-4 py-3 bg-blue-50 dark:bg-blue-900/20 rounded-r-md">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                      Review by {item.creatorName}:
+                    </h3>
+                    <p className="text-gray-700 dark:text-gray-300 text-sm italic">
+                      {item.userReview}
+                    </p>
+                  </div>
+                )}
 
                 {/* Voting section */}
                 <div className="mb-8">

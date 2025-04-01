@@ -29,7 +29,7 @@ const nextConfig: NextConfig = {
     return [];
   },
   
-  // Environment variables remain unchanged
+  // Environment variables with added OpenAI API key
   env: {
     NEXT_PUBLIC_FIREBASE_API_KEY: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -40,6 +40,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
     NEXT_PUBLIC_RECAPTCHA_SITE_KEY: process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY,
     NEXT_PUBLIC_R2_PUBLIC_URL: process.env.NEXT_PUBLIC_R2_PUBLIC_URL,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY, // Added OpenAI API key
   },
   
   // TypeScript and ESLint configuration remain unchanged

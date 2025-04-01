@@ -10,6 +10,8 @@ import {
   writeBatch, Timestamp
 } from 'firebase/firestore';
 import { useAuth } from '@/lib/auth';
+// Import gamification functions
+import { awardPoints, checkForNewBadges } from '@/lib/gamification';
 
 // Rate limits for anonymous users
 const ANONYMOUS_LIMITS = {
@@ -47,7 +49,7 @@ export interface VoteResult {
 }
 
 export function useVoteManager() {
-  const { user, userProfile } = useAuth();
+  const { user, userProfile, awardVotePoints } = useAuth();
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [votingLimits, setVotingLimits] = useState<VoteLimits>({
     hourly: 0,
@@ -399,6 +401,12 @@ export function useVoteManager() {
       const previousVote = await getUserVote(itemId);
       const isChangingVote = previousVote !== null && previousVote !== voteType;
       
+      // Get item category for gamification
+      let categoryId = '';
+      if (itemExists && currentData) {
+        categoryId = currentData.category || '';
+      }
+      
       while (!success && retryCount <= maxRetries) {
         try {
           // If authenticated
@@ -421,6 +429,20 @@ export function useVoteManager() {
               'rateLimit.votes.lastVoteTime': serverTimestamp(),
               'voteCount': isChangingVote ? increment(0) : increment(1)
             });
+            
+            // Award points for voting - gamification
+            if (!isChangingVote) {
+              // Only award points for new votes, not changed votes
+              if (awardVotePoints) {
+                await awardVotePoints(user.uid, itemId, categoryId);
+              } else {
+                // Fallback if awardVotePoints is not available
+                await awardPoints(user.uid, 'vote', itemId, undefined, categoryId);
+              }
+              
+              // Check for badge eligibility
+              await checkForNewBadges(user.uid, 'vote', categoryId);
+            }
           } 
           // If anonymous
           else if (deviceId) {
@@ -552,7 +574,7 @@ export function useVoteManager() {
         error: 'Failed to record vote. Please try again.'
       };
     }
-  }, [user, deviceId, votingLimits, checkVotingEligibility, getUserVote]);
+  }, [user, deviceId, votingLimits, checkVotingEligibility, getUserVote, awardVotePoints]);
 
   // Delete a vote (for admins or users within the change window)
   const deleteVote = useCallback(async (itemId: string): Promise<boolean> => {

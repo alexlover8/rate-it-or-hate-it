@@ -1,3 +1,4 @@
+// src/app/category/page.tsx
 import { Metadata } from 'next';
 import { getCategories } from '@/lib/server-data';
 import CategoriesGrid from './CategoriesGrid';
@@ -8,10 +9,13 @@ export const metadata: Metadata = {
   description: 'Explore all categories on Rate It or Hate It and discover items to rate or hate in your favorite categories.',
 };
 
-export default async function CategoriesPage() {
+export default async function CategoryPage() {
   try {
     // Fetch all categories
     const categories = await getCategories();
+    
+    // Console log for debugging
+    console.log(`CategoryPage: Loaded ${categories.length} categories`);
     
     return (
       <div className="container mx-auto py-10 px-4">

@@ -4,9 +4,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Search, X, ArrowRight, Loader2 } from 'lucide-react';
 import Image from 'next/image';
-import { collection, query, where, orderBy, limit, getDocs, startAt, endAt } from 'firebase/firestore';
+import { collection, query as firestoreQuery, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { useDebounce } from '@/utils/hooks';
+import { useDebounce } from '../utils/hooks';
 
 export type SearchResult = {
   id: string;
@@ -15,7 +15,6 @@ export type SearchResult = {
   imageUrl?: string | null;
 };
 
-// Popular search terms - could be stored in and fetched from Firestore in production
 const popularSearches = [
   'iPhone',
   'Netflix',
@@ -53,7 +52,7 @@ export default function SearchBar({
   // Debounce search query to reduce API calls
   const debouncedQuery = useDebounce(query, 300);
 
-  // Load recent searches from localStorage on component mount
+  // Load recent searches from localStorage on mount
   useEffect(() => {
     try {
       const storedSearches = localStorage.getItem('recentSearches');
@@ -68,11 +67,7 @@ export default function SearchBar({
   // Save a search term to recent searches
   const saveToRecentSearches = useCallback((term: string) => {
     try {
-      const updatedSearches = [
-        term,
-        ...recentSearches.filter(item => item !== term)
-      ].slice(0, 5);
-      
+      const updatedSearches = [term, ...recentSearches.filter(item => item !== term)].slice(0, 5);
       setRecentSearches(updatedSearches);
       localStorage.setItem('recentSearches', JSON.stringify(updatedSearches));
     } catch (err) {
@@ -80,7 +75,7 @@ export default function SearchBar({
     }
   }, [recentSearches]);
 
-  // Handle click outside to close results
+  // Close results if clicking outside the search container
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
@@ -89,19 +84,16 @@ export default function SearchBar({
     };
 
     document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return () => { document.removeEventListener('mousedown', handleClickOutside); };
   }, []);
 
-  // Reset search when route changes
+  // Reset search when the route changes
   useEffect(() => {
     setQuery('');
     setResults([]);
     setShowResults(false);
   }, [pathname]);
 
-  // Handle search input
   const handleSearchInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newQuery = e.target.value;
     setQuery(newQuery);
@@ -114,7 +106,7 @@ export default function SearchBar({
     }
   };
 
-  // Search Firestore based on debounced query
+  // Perform the Firestore query using the name field (case-insensitive)
   useEffect(() => {
     if (debouncedQuery.length < 2) return;
     
@@ -123,32 +115,64 @@ export default function SearchBar({
       setError(null);
       
       try {
-        // Capitalize first letter of query to handle case sensitivity
+        // Convert the query to lowercase for case-insensitive search
         const searchTerm = debouncedQuery.toLowerCase();
-        const searchTermEnd = searchTerm + '\uf8ff';  // High code point for prefix search
         
-        // Create a query to search by name
-        const itemsQuery = query(
+        // First try to search by name_lower field if it exists
+        try {
+          const itemsQuery = firestoreQuery(
+            collection(db, 'items'),
+            where('name_lower', '>=', searchTerm),
+            where('name_lower', '<=', searchTerm + '\uf8ff'),
+            orderBy('name_lower'),
+            limit(maxResults)
+          );
+          
+          const snapshot = await getDocs(itemsQuery);
+          
+          if (!snapshot.empty) {
+            const searchResults = snapshot.docs.map(doc => {
+              const data = doc.data();
+              return {
+                id: doc.id,
+                name: data.name || 'Unknown Item',
+                category: data.category || 'uncategorized',
+                imageUrl: data.imageUrl || null,
+              };
+            });
+            
+            setResults(searchResults);
+            setIsLoading(false);
+            return;
+          }
+        } catch (err) {
+          console.log('Error with name_lower search, falling back:', err);
+          // Just proceed to the fallback search
+        }
+        
+        // If we get here, either the first query had no results,
+        // or name_lower might not exist, so we'll try a more generic approach
+        const fallbackQuery = firestoreQuery(
           collection(db, 'items'),
-          where('name_lower', '>=', searchTerm),
-          where('name_lower', '<=', searchTermEnd),
-          orderBy('name_lower'),
-          limit(maxResults)
+          orderBy('name'),
+          limit(maxResults * 3) // Get more to filter client-side
         );
         
-        // Execute the query
-        const snapshot = await getDocs(itemsQuery);
+        const fallbackSnapshot = await getDocs(fallbackQuery);
         
-        // Map to search results
-        const searchResults = snapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            name: data.name || 'Unknown Item',
-            category: data.category || 'uncategorized',
-            imageUrl: data.imageUrl || null
-          };
-        });
+        // Process results - filter client-side to match search term
+        let searchResults = fallbackSnapshot.docs
+          .map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              name: data.name || 'Unknown Item',
+              category: data.category || 'uncategorized',
+              imageUrl: data.imageUrl || null,
+            };
+          })
+          .filter(item => item.name.toLowerCase().includes(searchTerm))
+          .slice(0, maxResults);
         
         setResults(searchResults);
       } catch (err) {
@@ -162,7 +186,6 @@ export default function SearchBar({
     performSearch();
   }, [debouncedQuery, maxResults]);
 
-  // Clear search
   const clearSearch = () => {
     setQuery('');
     setResults([]);
@@ -172,27 +195,19 @@ export default function SearchBar({
     }
   };
 
-  // Handle form submission
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
     if (query.trim()) {
-      // Save search term to recent searches
       saveToRecentSearches(query.trim());
-      
-      // Navigate to search results page
       router.push(`/search?q=${encodeURIComponent(query.trim())}`);
-      
-      // Call onSearch callback if provided
       if (onSearch) {
         onSearch(query.trim());
       }
-      
       setShowResults(false);
     }
   };
 
-  // Handle pressing enter on an autocomplete item
   const handleKeyDown = (e: React.KeyboardEvent, result?: SearchResult) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -204,21 +219,18 @@ export default function SearchBar({
     }
   };
 
-  // Handle selecting a search result
   const handleSelectResult = (result: SearchResult) => {
     saveToRecentSearches(result.name);
     router.push(`/item/${result.id}`);
     setShowResults(false);
   };
 
-  // Handle popular or recent search click
   const handleSearchTerm = (term: string) => {
     setQuery(term);
     setShowResults(true);
-    // The search will be performed when the debounced query updates
   };
 
-  // Define classes based on variant
+  // Determine CSS classes based on the variant prop
   const getVariantClasses = () => {
     switch (variant) {
       case 'hero':
@@ -292,7 +304,7 @@ export default function SearchBar({
           </button>
         )}
         
-        {/* Search button (for hero and default variants) */}
+        {/* Submit search button */}
         <button 
           type="submit"
           className={`
@@ -332,7 +344,7 @@ export default function SearchBar({
             </div>
           ) : results.length > 0 ? (
             <ul className="max-h-72 overflow-y-auto" role="listbox">
-              {results.map((result, index) => (
+              {results.map((result) => (
                 <li 
                   key={result.id}
                   className="border-b border-gray-100 dark:border-gray-700 last:border-none hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
@@ -352,7 +364,6 @@ export default function SearchBar({
                           sizes="40px"
                           className="object-cover"
                           onError={(e) => {
-                            // Fallback for broken images
                             const target = e.target as HTMLImageElement;
                             target.src = '/images/placeholder.png';
                           }}
@@ -445,21 +456,3 @@ export default function SearchBar({
     </div>
   );
 }
-
-// Create a custom hook for the useDebounce functionality 
-// If this doesn't exist, add it to utils/hooks.ts
-// export function useDebounce<T>(value: T, delay: number): T {
-//   const [debouncedValue, setDebouncedValue] = useState<T>(value);
-//
-//   useEffect(() => {
-//     const handler = setTimeout(() => {
-//       setDebouncedValue(value);
-//     }, delay);
-//
-//     return () => {
-//       clearTimeout(handler);
-//     };
-//   }, [value, delay]);
-//
-//   return debouncedValue;
-// }

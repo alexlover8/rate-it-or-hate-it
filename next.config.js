@@ -17,6 +17,9 @@ const nextConfig = {
 
     // Cloudflare R2 Configuration
     NEXT_PUBLIC_R2_PUBLIC_URL: process.env.NEXT_PUBLIC_R2_PUBLIC_URL,
+    
+    // OpenAI Configuration
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   },
 
   // Image configuration

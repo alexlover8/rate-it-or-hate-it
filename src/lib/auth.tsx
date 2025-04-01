@@ -15,6 +15,33 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
+// Import gamification functions
+import { 
+  initializeUserGamification, 
+  updateLoginStreak, 
+  awardPoints, 
+  checkForNewBadges 
+} from './gamification';
+
+// Type definition for demographic data
+export type Demographics = {
+  age_group: string | null;
+  gender: string | null;
+  location: {
+    country: string | null;
+    region: string | null;
+    city: string | null;
+  } | null;
+  interests: string[] | null;
+  lifestyle_tags: string[] | null;
+  favorite_categories: string[] | null;
+  profile_completion: number;
+  data_sharing_consent: boolean;
+  last_updated: Date | null;
+};
+
+// Import gamification related types
+import { UserGamification } from './data';
 
 // Types for user profile and auth context
 type UserProfile = {
@@ -29,6 +56,10 @@ type UserProfile = {
     meh: number;
     hate: number;
   };
+  // Demographics data
+  demographics?: Demographics;
+  // Add gamification data
+  gamification?: UserGamification;
 };
 
 type AuthContextType = {
@@ -43,6 +74,11 @@ type AuthContextType = {
   logOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateUserProfile: (data: Partial<UserProfile>) => Promise<void>;
+  updateUserDemographics: (demographics: Demographics) => Promise<void>;
+  // Add gamification functions
+  awardVotePoints: (userId: string, itemId: string, categoryId?: string) => Promise<void>;
+  awardCommentPoints: (userId: string, itemId: string, commentId: string, categoryId?: string) => Promise<void>;
+  awardItemSubmissionPoints: (userId: string, itemId: string, categoryId: string) => Promise<void>;
 };
 
 // Create context with default values
@@ -58,6 +94,11 @@ const AuthContext = createContext<AuthContextType>({
   logOut: async () => {},
   resetPassword: async () => {},
   updateUserProfile: async () => {},
+  updateUserDemographics: async () => {},
+  // Add gamification function defaults
+  awardVotePoints: async () => {},
+  awardCommentPoints: async () => {},
+  awardItemSubmissionPoints: async () => {},
 });
 
 // Check if we're on the client side
@@ -90,6 +131,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             
             if (userSnap.exists()) {
               setUserProfile(userSnap.data() as UserProfile);
+              
+              // Update login streak for gamification
+              updateLoginStreak(currentUser.uid).catch(err => {
+                console.error('Error updating login streak:', err);
+              });
             } else {
               console.log('No user profile found');
             }
@@ -141,8 +187,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           meh: 0,
           hate: 0
         },
-        lastActive: serverTimestamp()
+        lastActive: serverTimestamp(),
+        demographics: {
+          age_group: null,
+          gender: null,
+          location: {
+            country: null,
+            region: null,
+            city: null
+          },
+          interests: [],
+          lifestyle_tags: [],
+          favorite_categories: [],
+          profile_completion: 0,
+          data_sharing_consent: false,
+          last_updated: null
+        },
+        // Initialize gamification data
+        gamification: initializeUserGamification()
       });
+      
+      // Check for first-time user badge
+      await checkForNewBadges(user.uid, 'account_created');
       
       return { user };
     } catch (err: any) {
@@ -183,6 +249,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await updateDoc(userRef, {
           lastActive: serverTimestamp()
         });
+        
+        // Update login streak for gamification
+        await updateLoginStreak(result.user.uid);
       }
       
       return result;
@@ -238,14 +307,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             hate: 0
           },
           lastActive: serverTimestamp(),
-          provider: 'google'
+          provider: 'google',
+          demographics: {
+            age_group: null,
+            gender: null,
+            location: {
+              country: null,
+              region: null,
+              city: null
+            },
+            interests: [],
+            lifestyle_tags: [],
+            favorite_categories: [],
+            profile_completion: 0,
+            data_sharing_consent: false,
+            last_updated: null
+          },
+          // Initialize gamification data
+          gamification: initializeUserGamification()
         });
+        
+        // Check for first-time user badge
+        await checkForNewBadges(result.user.uid, 'account_created');
       } else {
         // Update last active timestamp
         const userRef = doc(db, 'users', result.user.uid);
         await updateDoc(userRef, {
           lastActive: serverTimestamp()
         });
+        
+        // Update login streak for gamification
+        await updateLoginStreak(result.user.uid);
       }
       
       return result;
@@ -298,14 +390,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             hate: 0
           },
           lastActive: serverTimestamp(),
-          provider: 'facebook'
+          provider: 'facebook',
+          demographics: {
+            age_group: null,
+            gender: null,
+            location: {
+              country: null,
+              region: null,
+              city: null
+            },
+            interests: [],
+            lifestyle_tags: [],
+            favorite_categories: [],
+            profile_completion: 0,
+            data_sharing_consent: false,
+            last_updated: null
+          },
+          // Initialize gamification data
+          gamification: initializeUserGamification()
         });
+        
+        // Check for first-time user badge
+        await checkForNewBadges(result.user.uid, 'account_created');
       } else {
         // Update last active timestamp
         const userRef = doc(db, 'users', result.user.uid);
         await updateDoc(userRef, {
           lastActive: serverTimestamp()
         });
+        
+        // Update login streak for gamification
+        await updateLoginStreak(result.user.uid);
       }
       
       return result;
@@ -418,6 +533,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Update user demographics
+  const updateUserDemographics = async (demographics: Demographics) => {
+    if (!isClient) {
+      throw new Error("Authentication is not available on the server");
+    }
+    
+    if (!user) throw new Error('No authenticated user');
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Update Firestore profile with demographics
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        demographics: {
+          ...demographics,
+          last_updated: serverTimestamp()
+        }
+      });
+      
+      // Update local state
+      if (userProfile) {
+        setUserProfile({
+          ...userProfile,
+          demographics: {
+            ...demographics,
+            last_updated: new Date()
+          }
+        });
+      }
+
+      return;
+    } catch (err: any) {
+      console.error('Error updating demographics:', err);
+      setError(err.message || 'Failed to update demographics');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Award points for voting
+  const awardVotePoints = async (userId: string, itemId: string, categoryId?: string): Promise<void> => {
+    try {
+      await awardPoints(userId, 'vote', itemId, undefined, categoryId);
+    } catch (error) {
+      console.error('Error awarding vote points:', error);
+    }
+  };
+
+  // Award points for commenting
+  const awardCommentPoints = async (userId: string, itemId: string, commentId: string, categoryId?: string): Promise<void> => {
+    try {
+      await awardPoints(userId, 'comment', itemId, commentId, categoryId);
+    } catch (error) {
+      console.error('Error awarding comment points:', error);
+    }
+  };
+
+  // Award points for item submission
+  const awardItemSubmissionPoints = async (userId: string, itemId: string, categoryId: string): Promise<void> => {
+    try {
+      await awardPoints(userId, 'item_submission', itemId, undefined, categoryId);
+      // Also check for first item badge
+      await checkForNewBadges(userId, 'item_submission', categoryId);
+    } catch (error) {
+      console.error('Error awarding item submission points:', error);
+    }
+  };
+
   // Context value
   const value = {
     user,
@@ -430,7 +616,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signInWithFacebook,
     logOut,
     resetPassword,
-    updateUserProfile
+    updateUserProfile,
+    updateUserDemographics,
+    // Add gamification functions
+    awardVotePoints,
+    awardCommentPoints,
+    awardItemSubmissionPoints
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

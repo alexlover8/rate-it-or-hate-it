@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
   Search, User, Menu, X, ChevronDown, ChevronUp, LogIn, PlusCircle, LogOut, 
-  Settings, Home, Sun, Moon, TrendingUp, Clock, Sparkles, Filter
+  Settings, Home, Sun, Moon, TrendingUp, Clock, Sparkles, Filter, Trophy
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import Image from 'next/image';
@@ -171,6 +171,18 @@ export default function Header() {
             <span className="flex items-center">
               <Sparkles className="w-4 h-4 mr-1.5" />
               Hot Debates
+            </span>
+          </Link>
+          
+          <Link 
+            href="/contributors" 
+            className={`px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+              pathname === '/contributors' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium' : ''
+            }`}
+          >
+            <span className="flex items-center">
+              <Trophy className="w-4 h-4 mr-1.5" />
+              Contributors
             </span>
           </Link>
 
@@ -445,6 +457,19 @@ export default function Header() {
             >
               <Sparkles className="w-5 h-5 mr-3" />
               Hot Debates
+            </Link>
+            
+            <Link 
+              href="/contributors" 
+              className={`block px-3 py-2.5 rounded-lg transition-colors flex items-center ${
+                pathname === '/contributors' 
+                  ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' 
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+              }`}
+              onClick={closeMenu}
+            >
+              <Trophy className="w-5 h-5 mr-3" />
+              Contributors
             </Link>
             
             <div className="border-t border-gray-200 dark:border-gray-700 my-2"></div>
